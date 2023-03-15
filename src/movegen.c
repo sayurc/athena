@@ -20,19 +20,11 @@ typedef struct magic {
 	int shift;
 } Magic;
 
-/*
- * This stack is used to store moves during move generation, I created it just
- * to avoid repeating the code to add a new move. The list of moves used by the
- * stack, referenced by ptr, is guaranteed to not have holes (missing moves
- * between two moves) so it can be normally used like any list. The index
- * always points to the next empty slot, which will be used to store the next
- * move. Moves cannot be removed, only added.
- */
-typedef struct move_stack {
+typedef struct move_list {
 	Move *ptr;
 	size_t capacity;
-	size_t index;
-} MoveStack;
+	size_t len;
+} MoveList;
 
 /*
  * The bitboards for each rank and file contain all the squares of a rank or
@@ -393,45 +385,23 @@ static u64 get_queen_attacks(Square sq, u64 occ)
 	return get_rook_attacks(sq, occ) | get_bishop_attacks(sq, occ);
 }
 
-/*
- * The chess positions with the most number of legal moves for a side that I
- * know of are
- * "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1" and
- * "3Q4/1Q4Q1/4Q3/2Q4R/Q4Q2/3Q4/1Q4Rp/1K1BBNNk w - - 0 1"
- * with 218 legal moves for white, so the maximum number of legal or illegal
- * moves for any position must be around that value. Therefore the stack of
- * moves starts with capacity 256 which is the closest power of 2.
- */
-static void init_move_stack(MoveStack *stack)
+static void add_move(MoveList *list, Move move)
 {
-	const size_t initial_capacity = 2 << 8;
-	stack->capacity = initial_capacity;
-	stack->ptr = malloc(stack->capacity * sizeof(Move));
-	stack->index = 0;
-}
-
-static void push_move(MoveStack *stack, Move move)
-{
-	if (stack->index == stack->capacity) {
-		stack->capacity <<= 2;
-		Move *const tmp = realloc(stack->ptr, stack->capacity * sizeof(Move));
+	if (list->len == list->capacity) {
+		list->capacity <<= 2;
+		Move *const tmp = realloc(list->ptr, list->capacity * sizeof(Move));
 		if (!tmp) {
 			fprintf(stderr, "Could not allocate memory.");
 			exit(1);
 		}
-		stack->ptr = tmp;
+		list->ptr = tmp;
 	}
-	stack->ptr[stack->index] = move;
-	++stack->index;
-}
-
-static int get_number_of_moves(const MoveStack *stack)
-{
-	return stack->index;
+	list->ptr[list->len] = move;
+	++list->len;
 }
 
 // 2k5/8/5Pp1/8/8/8/8/2K5 w - - 0 1
-static void add_pseudo_legal_pawn_moves(MoveStack *move_stack,
+static void add_pseudo_legal_pawn_moves(MoveList *move_stack,
 					const Position *pos)
 {
 	const Color color = pos_get_side_to_move(pos);
@@ -448,7 +418,7 @@ static void add_pseudo_legal_pawn_moves(MoveStack *move_stack,
 			const Square from = get_index_of_first_bit_and_unset(&attackers);
 			const Square to = sq;
 			const Move move = move_new(from, to, MOVE_EP_CAPTURE);
-			push_move(move_stack, move);
+			add_move(move_stack, move);
 		}
 	}
 
@@ -462,11 +432,11 @@ static void add_pseudo_legal_pawn_moves(MoveStack *move_stack,
 				for (MoveType move_type = MOVE_KNIGHT_PROMOTION;
 				move_type <= MOVE_QUEEN_PROMOTION; ++move_type) {
 					const Move move = move_new(from, to, move_type);
-					push_move(move_stack, move);
+					add_move(move_stack, move);
 				}
 			} else {
 				const Move move = move_new(from, to, MOVE_QUIET);
-				push_move(move_stack, move);
+				add_move(move_stack, move);
 			}
 		}
 
@@ -474,7 +444,7 @@ static void add_pseudo_legal_pawn_moves(MoveStack *move_stack,
 		if (targets) {
 			const Square to = get_index_of_first_bit(targets);
 			const Move move = move_new(from, to, MOVE_DOUBLE_PAWN_PUSH);
-			push_move(move_stack, move);
+			add_move(move_stack, move);
 		}
 
 		targets = get_pawn_attacks(from, color) & enemy_pieces;
@@ -485,17 +455,17 @@ static void add_pseudo_legal_pawn_moves(MoveStack *move_stack,
 				move_type <= MOVE_QUEEN_PROMOTION_CAPTURE;
 				++move_type) {
 					const Move move = move_new(from, to, move_type);
-					push_move(move_stack, move);
+					add_move(move_stack, move);
 				}
 			} else {
 				const Move move = move_new(from, to, MOVE_CAPTURE);
-				push_move(move_stack, move);
+				add_move(move_stack, move);
 			}
 		}
 	}
 }
 
-static void add_pseudo_legal_king_moves(MoveStack *move_stack,
+static void add_pseudo_legal_king_moves(MoveList *move_stack,
 					const Position *pos)
 {
 	const Color color = pos_get_side_to_move(pos);
@@ -518,7 +488,7 @@ static void add_pseudo_legal_king_moves(MoveStack *move_stack,
 		    !movegen_is_square_attacked(from, !color, pos)) {
 			const Square to   = color == COLOR_WHITE ? G1 : G8;
 			const Move move = move_new(from, to, MOVE_KING_CASTLE);
-			push_move(move_stack, move);
+			add_move(move_stack, move);
 		}
 	}
 	if (pos_has_castling_right(pos, color, CASTLING_SIDE_QUEEN)) {
@@ -537,7 +507,7 @@ static void add_pseudo_legal_king_moves(MoveStack *move_stack,
 		    !movegen_is_square_attacked(from, !color, pos)) {
 			const Square to   = color == COLOR_WHITE ? C1 : C8;
 			const Move move = move_new(from, to, MOVE_QUEEN_CASTLE);
-			push_move(move_stack, move);
+			add_move(move_stack, move);
 		}
 	}
 
@@ -547,12 +517,12 @@ static void add_pseudo_legal_king_moves(MoveStack *move_stack,
 		const Move move = pos_get_piece_at(pos, to) == PIECE_NONE ?
 		                  move_new(from, to, MOVE_QUIET) :
 		                  move_new(from, to, MOVE_CAPTURE);
-		push_move(move_stack, move);
+		add_move(move_stack, move);
 	}
 }
 
 static inline void add_pseudo_legal_moves(
-MoveStack *move_stack, PieceType piece_type, const Position *pos)
+MoveList *list, PieceType piece_type, const Position *pos)
 {
 	const Color color = pos_get_side_to_move(pos);
 	const Piece piece = pos_make_piece(piece_type, color);
@@ -566,7 +536,7 @@ MoveStack *move_stack, PieceType piece_type, const Position *pos)
 		u64 targets = 0;
 		switch (piece_type) {
 		case PIECE_TYPE_PAWN:
-			add_pseudo_legal_pawn_moves(move_stack, pos);
+			add_pseudo_legal_pawn_moves(list, pos);
 			return;
 		case PIECE_TYPE_KNIGHT:
 			targets = get_knight_attacks(from);
@@ -581,7 +551,7 @@ MoveStack *move_stack, PieceType piece_type, const Position *pos)
 			targets = get_queen_attacks(from, occ);
 			break;
 		case PIECE_TYPE_KING:
-			add_pseudo_legal_king_moves(move_stack, pos);
+			add_pseudo_legal_king_moves(list, pos);
 			break;
 		default:
 			abort();
@@ -592,7 +562,7 @@ MoveStack *move_stack, PieceType piece_type, const Position *pos)
 			const Move move = pos_get_piece_at(pos, to) == PIECE_NONE ?
 			                  move_new(from, to, MOVE_QUIET) :
 			                  move_new(from, to, MOVE_CAPTURE);
-			push_move(move_stack, move);
+			add_move(list, move);
 		}
 	}
 }
@@ -704,20 +674,33 @@ int movegen_get_number_of_pseudo_legal_moves(const Position *pos, Color c)
 	     + get_number_of_pseudo_legal_moves(PIECE_TYPE_KING, c, pos);
 }
 
+/*
+ * Return a list containing all the pseudo legal moves possible for a position
+ * (that is, moves that may put the king in check), or NULL if no moves are
+ * possible.
+ */
 Move *movegen_get_pseudo_legal_moves(const Position *pos, size_t *len)
 {
-	MoveStack move_stack;
+	const size_t initial_capacity = 2 << 8;
+	MoveList list;
 
-	init_move_stack(&move_stack);
-	add_pseudo_legal_moves(&move_stack, PIECE_TYPE_PAWN, pos);
-	add_pseudo_legal_moves(&move_stack, PIECE_TYPE_KNIGHT, pos);
-	add_pseudo_legal_moves(&move_stack, PIECE_TYPE_ROOK, pos);
-	add_pseudo_legal_moves(&move_stack, PIECE_TYPE_BISHOP, pos);
-	add_pseudo_legal_moves(&move_stack, PIECE_TYPE_QUEEN, pos);
-	add_pseudo_legal_moves(&move_stack, PIECE_TYPE_KING, pos);
+	list.capacity = initial_capacity;
+	list.ptr = malloc(list.capacity * sizeof(Move));
+	list.len = 0;
 
-	*len = get_number_of_moves(&move_stack);
-	return move_stack.ptr;
+	add_pseudo_legal_moves(&list, PIECE_TYPE_PAWN, pos);
+	add_pseudo_legal_moves(&list, PIECE_TYPE_KNIGHT, pos);
+	add_pseudo_legal_moves(&list, PIECE_TYPE_ROOK, pos);
+	add_pseudo_legal_moves(&list, PIECE_TYPE_BISHOP, pos);
+	add_pseudo_legal_moves(&list, PIECE_TYPE_QUEEN, pos);
+	add_pseudo_legal_moves(&list, PIECE_TYPE_KING, pos);
+
+	*len = list.len;
+	if (!*len) {
+		free(list.ptr);
+		return NULL;
+	}
+	return list.ptr;
 }
 
 /*

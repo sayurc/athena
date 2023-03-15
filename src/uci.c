@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -5,6 +7,9 @@
 #include <stdbool.h>
 #include <errno.h>
 #include <stdarg.h>
+#include <limits.h>
+
+#include <pthread.h>
 
 #include <check.h>
 
@@ -15,8 +20,11 @@
 #include "search.h"
 #include "uci.h"
 
-bool newgame_has_been_run = false;
-Position *current_position = NULL;
+static pthread_t search_thread;
+static bool started_search = false;
+static bool newgame_has_been_run = false;
+static Position *current_position = NULL;
+static struct thread_data search_thread_data;
 
 static const size_t max_lan_len = 5;
 
@@ -167,6 +175,15 @@ string:
 	return 0;
 }
 
+void uci_send(const char *fmt, ...)
+{
+	va_list args;
+	va_start(args, fmt);
+	vprintf(fmt, args);
+	putchar('\n');
+	fflush(stdout);
+}
+
 static void bestmove(Move move)
 {
 	char lan[max_lan_len + 1];
@@ -217,48 +234,158 @@ static void id(void)
 	uci_send("id author Aiya");
 }
 
+static void info(const struct search_info *info)
+{
+	char *str = malloc(1), *tmp;
+
+	str[0] = 0;
+
+	if (!info->flags)
+		return;
+	if (info->flags & INFO_FLAG_DEPTH) {
+		asprintf(&tmp, "%sdepth %d ", str, info->depth);
+		free(str);
+		str = tmp;
+	}
+	if (info->flags & INFO_FLAG_NODES) {
+		asprintf(&tmp, "%snodes %lld ", str, info->nodes);
+		free(str);
+		str = tmp;
+	}
+	if (info->flags & INFO_FLAG_MATE) {
+		asprintf(&tmp, "%smate %lld ", str, info->mate);
+		free(str);
+		str = tmp;
+	}
+	if (info->flags & INFO_FLAG_NPS) {
+		asprintf(&tmp, "%snps %lld", str, info->nps);
+		free(str);
+		str = tmp;
+	}
+
+	str[strlen(str)] = 0;
+	uci_send(str);
+	free(str);
+}
+
 static void quit(void)
 {
+	if (started_search) {
+		pthread_mutex_lock(&search_thread_data.stop_mtx);
+		search_thread_data.stop = true;
+		pthread_mutex_unlock(&search_thread_data.stop_mtx);
+		pthread_join(search_thread, NULL);
+		pos_destroy(search_thread_data.settings.position);
+		pthread_mutex_destroy(&search_thread_data.stop_mtx);
+		started_search = false;
+	}
 	if (current_position)
 		pos_destroy(current_position);
-	search_finish();
 	for (size_t i = 0; i < sizeof(options) / sizeof(options[0]); ++i) {
 		struct option *const op = &options[i];
 		if (op->type == OPTION_TYPE_STRING)
 			free(op->value.string);
 	}
+	search_finish();
 }
 
+static void stop(void)
+{
+	if (started_search) {
+		pthread_mutex_lock(&search_thread_data.stop_mtx);
+		search_thread_data.stop = true;
+		pthread_mutex_unlock(&search_thread_data.stop_mtx);
+		pthread_join(search_thread, NULL);
+		pos_destroy(search_thread_data.settings.position);
+		pthread_mutex_destroy(&search_thread_data.stop_mtx);
+		started_search = false;
+	}
+}
+
+/*
+ * Infinite searches are done by maxing out the search limits.
+ */
 static void go(void)
 {
+	if (started_search) {
+		pthread_join(search_thread, NULL);
+		pos_destroy(search_thread_data.settings.position);
+		started_search = false;
+	}
+
 	if (!current_position) {
 		fprintf(stderr, "go command sent before position command.\n");
 		return;
 	}
 
-	int depth = 0;
+	pthread_mutex_init(&search_thread_data.stop_mtx, NULL);
+	search_thread_data.stop = false;
+	search_thread_data.best_move_sender = bestmove;
+	search_thread_data.info_sender = info;
+	search_thread_data.settings.position = pos_copy(current_position);
+	search_thread_data.settings.type = SEARCH_TYPE_INFINITE;
+	search_thread_data.settings.depth = INT_MAX;
+	search_thread_data.settings.nodes = LLONG_MAX;
 
 	char *str = strtok(NULL, " ");
 	while (str) {
 		if (!strcmp(str, "depth")) {
+			search_thread_data.settings.type = SEARCH_TYPE_NORMAL;
 			str = strtok(NULL, " ");
 			if (!str) {
 				fprintf(stderr, "Invalid UCI command.\n");
+				pthread_mutex_destroy(&search_thread_data.stop_mtx);
 				return;
 			}
 			char *endptr = NULL;
 			errno = 0;
-			depth = strtol(str, &endptr, 10);
-			if (errno == ERANGE || endptr == str || *endptr != '\0')
-				depth = 0;
+			search_thread_data.settings.depth = strtol(str, &endptr, 10);
+			if (errno == ERANGE || endptr == str) {
+				fprintf(stderr, "Invalid UCI command.\n");
+				pthread_mutex_destroy(&search_thread_data.stop_mtx);
+				return;
+			}
+		} else if (!strcmp(str, "nodes")) {
+			search_thread_data.settings.type = SEARCH_TYPE_NORMAL;
+			str = strtok(NULL, " ");
+			if (!str) {
+				fprintf(stderr, "Invalid UCI command.\n");
+				pthread_mutex_destroy(&search_thread_data.stop_mtx);
+				return;
+			}
+			char *endptr = NULL;
+			errno = 0;
+			search_thread_data.settings.nodes = strtol(str, &endptr, 10);
+			if (errno == ERANGE || endptr == str) {
+				fprintf(stderr, "Invalid UCI command.\n");
+				pthread_mutex_destroy(&search_thread_data.stop_mtx);
+				return;
+			}
+		} else if (!strcmp(str, "infinite")) {
+			search_thread_data.settings.type = SEARCH_TYPE_INFINITE;
+		} else if (!strcmp(str, "mate")) {
+			search_thread_data.settings.type = SEARCH_TYPE_FIND_MATE;
+			str = strtok(NULL, " ");
+			if (!str)
+				return;
+			char *endptr = NULL;
+			errno = 0;
+			search_thread_data.settings.moves_to_mate = strtol(str, &endptr, 10);
+			if (errno == ERANGE || endptr == str)
+				return;
 		} else {
 			break;
 		}
 		str = strtok(NULL, " ");
 	}
 
-	Move move = search_get_best_move(current_position, depth);
-	bestmove(move);
+	if (pthread_create(&search_thread, NULL, search_get_best_move, &search_thread_data)) {
+		perror("Athena");
+		pthread_mutex_destroy(&search_thread_data.stop_mtx);
+	} else {
+		started_search = true;
+		search_thread_data.stop = false;
+	}
 }
 
 static void ucinewgame(void)
@@ -524,6 +651,8 @@ bool uci_interpret(const char *str)
 		position(split_str);
 	} else if (!strcmp(cmd, "go")) {
 		go();
+	} else if (!strcmp(cmd, "stop")) {
+		stop();
 	} else if (!strcmp(cmd, "quit")) {
 		quit();
 		ret = false;
@@ -531,15 +660,6 @@ bool uci_interpret(const char *str)
 
 	free(split_str);
 	return ret;
-}
-
-void uci_send(const char *fmt, ...)
-{
-	va_list args;
-	va_start(args, fmt);
-	vprintf(fmt, args);
-	putchar('\n');
-	fflush(stdout);
 }
 
 /*
@@ -577,4 +697,14 @@ char *uci_receive(void)
 	str[i] = '\0';
 
 	return str;
+}
+
+void uci_loop(void)
+{
+	bool quit = false;
+	while (!quit) {
+		char *str = uci_receive();
+		quit = !uci_interpret(str);
+		free(str);
+	}
 }

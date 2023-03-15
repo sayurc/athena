@@ -14,12 +14,7 @@
 
 int main(void)
 {
-	bool quit = false;
-	while (!quit) {
-		char *str = uci_receive();
-		quit = !uci_interpret(str);
-		free(str);
-	}
+	uci_loop();
 
 	return EXIT_SUCCESS;
 }

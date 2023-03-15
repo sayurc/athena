@@ -3,6 +3,10 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <time.h>
+#include <math.h>
+
+#include <pthread.h>
 
 #include <check.h>
 
@@ -13,6 +17,13 @@
 #include "tt.h"
 #include "eval.h"
 #include "rng.h"
+#include "search.h"
+
+struct internal_data {
+	long long total_nodes;
+	long ply;
+	bool found_mate;
+};
 
 static const int INFINITE = SHRT_MAX;
 
@@ -119,76 +130,108 @@ static bool is_in_check(const Position *pos)
 	return movegen_is_square_attacked(king_sq, !c, pos);
 }
 
-static int quiescence_search(Position *pos, int alpha, int beta, int *nodes)
+static int qsearch(int alpha, int beta, struct thread_data *thread_data, struct search_info *info)
 {
-	int score = eval_evaluate(pos);
+	pthread_mutex_lock(&thread_data->stop_mtx);
+	if (thread_data->stop) {
+		pthread_mutex_unlock(&thread_data->stop_mtx);
+		return alpha;
+	}
+	pthread_mutex_unlock(&thread_data->stop_mtx);
+
+	int score = eval_evaluate(thread_data->settings.position);
 	alpha = score > alpha ? score : alpha;
 
-	size_t len;
-	Move *moves = movegen_get_pseudo_legal_moves(pos, &len);
-	for (size_t i = 0; i < len; ++i) {
+	size_t len, legal_moves_cnt = 0;
+	Move *moves = movegen_get_pseudo_legal_moves(thread_data->settings.position, &len);
+	for (size_t i = 0; i < len && thread_data->internal->total_nodes < thread_data->settings.nodes; ++i) {
 		Move move = moves[i];
-		if (!move_is_legal(pos, move) || !move_is_capture(move))
+		if (move_is_legal(thread_data->settings.position, move))
+			++legal_moves_cnt;
+		if (!move_is_legal(thread_data->settings.position, move) || !move_is_capture(move))
 			continue;
-		move_do(pos, move);
-		score = -quiescence_search(pos, -beta, -alpha, nodes);
-		move_undo(pos, move);
-		++*nodes;
+
+		move_do(thread_data->settings.position, move);
+		++thread_data->internal->ply;
+		score = -qsearch(-beta, -alpha, thread_data, info);
+		move_undo(thread_data->settings.position, move);
+		--thread_data->internal->ply;
+
+		++thread_data->internal->total_nodes;
+		++info->nodes;
+
 		alpha = score > alpha ? score : alpha;
 		if (alpha >= beta)
 			break;
 	}
 	free(moves);
 
+	if (!legal_moves_cnt) {
+		if (is_in_check(thread_data->settings.position)) {
+			info->mate = thread_data->internal->ply;
+			return INFINITE;
+		} else {
+			return 0;
+		}
+	}
+
 	return alpha;
 }
 
 /*
- * It will return MAX_INT on checkmate and 0 on stalemate.
+ * Return MAX_INT on checkmate and 0 on stalemate.
  */
-static int alpha_beta(Position *pos, int depth, int alpha, int beta, int *nodes)
+static int absearch(int depth, int alpha, int beta, struct thread_data *thread_data, struct search_info *info)
 {
+	pthread_mutex_lock(&thread_data->stop_mtx);
+	if (thread_data->stop) {
+		pthread_mutex_unlock(&thread_data->stop_mtx);
+		return alpha;
+	}
+	pthread_mutex_unlock(&thread_data->stop_mtx);
+
 	NodeData pos_data;
-	if (tt_get(&pos_data, pos) && pos_data.depth >= depth)
+	if (tt_get(&pos_data, thread_data->settings.position) && pos_data.depth >= depth)
 		return pos_data.score;
 	if (!depth)
-		return quiescence_search(pos, alpha, beta, nodes);
+		return qsearch(alpha, beta, thread_data, info);
+
 
 	NodeType type = NODE_TYPE_ALL;
-	size_t len = 0;
-	Move *moves = movegen_get_pseudo_legal_moves(pos, &len);
-	if (!len) {
-		if (is_in_check(pos))
-			return INT_MAX;
-		else
-			return 0;
-	}
-	Move *moves_ptr = moves;
 	size_t legal_moves_cnt = 0;
 	Move best_move;
-	do {
+	size_t len = 0;
+	Move *moves = movegen_get_pseudo_legal_moves(thread_data->settings.position, &len);
+	Move *const moves_ptr = moves;
+	while (len && thread_data->internal->total_nodes < thread_data->settings.nodes) {
 		/* Lazily sort moves instead of doing it all at once, this way
 		 * we avoid wasting time sorting moves of branches that are
 		 * pruned. */
 		if (len > 1) {
 			Move first = moves[0];
-			size_t i = get_most_promising_move(moves, len, pos, depth);
+			size_t i = get_most_promising_move(moves, len, thread_data->settings.position, depth);
 			Move most_promising = moves[i];
 			moves[0] = most_promising;
 			moves[i] = first;
 		}
 
 		Move move = *moves;
-		if (!move_is_legal(pos, move)) {
+		if (!move_is_legal(thread_data->settings.position, move)) {
 			--len;
 			++moves;
 			continue;
 		}
 		++legal_moves_cnt;
-		move_do(pos, move);
-		int score = -alpha_beta(pos, depth - 1, -beta, -alpha, nodes);
-		move_undo(pos, move);
-		++*nodes;
+
+		move_do(thread_data->settings.position, move);
+		++thread_data->internal->ply;
+		int score = -absearch(depth - 1, -beta, -alpha, thread_data, info);
+		move_undo(thread_data->settings.position, move);
+		--thread_data->internal->ply;
+
+		++thread_data->internal->total_nodes;
+		++info->nodes;
+
 		if (score > alpha) {
 			alpha = score;
 			best_move = move;
@@ -203,16 +246,19 @@ static int alpha_beta(Position *pos, int depth, int alpha, int beta, int *nodes)
 
 		--len;
 		++moves;
-	} while (len);
+	}
 	free(moves_ptr);
+
 	if (!legal_moves_cnt) {
-		if (is_in_check(pos))
+		if (is_in_check(thread_data->settings.position)) {
+			info->mate = thread_data->internal->ply;
 			return INFINITE;
-		else
+		} else {
 			return 0;
+		}
 	}
 
-	tt_entry_init(&pos_data, alpha, depth, type, best_move, pos);
+	tt_entry_init(&pos_data, alpha, depth, type, best_move, thread_data->settings.position);
 	tt_store(&pos_data);
 	return alpha;
 }
@@ -232,60 +278,133 @@ void search_finish(void)
 	tt_finish();
 }
 
-static Move search(Position *pos, int depth)
+static double get_elapsed_time(const struct timespec *ts1, const struct timespec *ts2)
 {
-	const Move null_move = 0;
+	const double t1 = ts1->tv_sec + ts1->tv_nsec / 10e9;
+	const double t2 = ts2->tv_sec + ts2->tv_nsec / 10e9;
+	return t2 - t1;
+}
 
-	size_t len;
-	Move *moves = movegen_get_pseudo_legal_moves(pos, &len);
+static Move search(int depth, struct thread_data *thread_data, struct search_info *info)
+{
+	info->depth = depth;
+	info->nodes = 0;
+	info->nps = 0;
+	info->mate = 0;
 
 	int alpha = -INFINITE, beta = INFINITE;
-	Move best_move = null_move;
-	int nodes = 0;
-	for (size_t i = 0; i < len; ++i) {
+	Move best_move = 0;
+	size_t len;
+	Move *const moves = movegen_get_pseudo_legal_moves(thread_data->settings.position, &len);
+	if (!len) {
+		if (is_in_check(thread_data->settings.position))
+			return -INFINITE;
+		return 0;
+	}
+
+	struct timespec ts1, ts2;
+	long long old_nodes;
+	old_nodes = info->nodes;
+	timespec_get(&ts1, TIME_UTC);
+
+	for (size_t i = 0; i < len && thread_data->internal->total_nodes < thread_data->settings.nodes; ++i) {
+		pthread_mutex_lock(&thread_data->stop_mtx);
+		if (thread_data->stop) {
+			pthread_mutex_unlock(&thread_data->stop_mtx);
+			break;
+		}
+		pthread_mutex_unlock(&thread_data->stop_mtx);
+
 		Move move = moves[i];
-		if (!move_is_legal(pos, move))
+		if (!move_is_legal(thread_data->settings.position, move))
 			continue;
-		move_do(pos, move);
-		int score = -alpha_beta(pos, depth - 1, -beta, -alpha, &nodes);
-		nodes += 1;
-		move_undo(pos, move);
+
+		move_do(thread_data->settings.position, move);
+		++thread_data->internal->ply;
+		int score = depth > 1 ? -absearch(depth - 1, -beta, -alpha, thread_data, info) :
+		                         qsearch(alpha, beta, thread_data, info);
+		move_undo(thread_data->settings.position, move);
+		--thread_data->internal->ply;
+
+		++thread_data->internal->total_nodes;
+		++info->nodes;
+
 		if (score > alpha) {
 			alpha = score;
 			best_move = move;
 		}
+		if (alpha == INFINITE && thread_data->settings.type == SEARCH_TYPE_FIND_MATE) {
+			thread_data->internal->found_mate = true;
+			best_move = move;
+			break;
+		}
 		if (alpha >= beta)
 			break;
 	}
+	timespec_get(&ts2, TIME_UTC);
+	double dt = get_elapsed_time(&ts1, &ts2);
+	const double nps = (double)(info->nodes - old_nodes) / dt;
+	info->nps = (long long)round(nps);
+	info->flags = INFO_FLAG_DEPTH | INFO_FLAG_NODES | INFO_FLAG_NPS;
+	if (alpha == INFINITE)
+		info->flags |= INFO_FLAG_MATE;
+	thread_data->info_sender(info);
 	/* Play any move if no best move was found (probably because all moves
 	 * lead to a checkmate or stalemate.) */
-	if (best_move == null_move && len != 0) {
+	if (!best_move && len) {
 		for (size_t i = 0; i < len; ++i) {
-			if (move_is_legal(pos, moves[i]))
+			if (move_is_legal(thread_data->settings.position, moves[i]))
 				best_move = moves[i];
 		}
 	}
 	free(moves);
 
-	printf("searched %d nodes\n", nodes);
 	return best_move;
 }
 
 /*
- * It will return 0 in case of checkmate or stalemate. If depth is less than or
- * equal to 0 the function will use a default depth.
+ * The only element of the thread_data struct that the calling thread may modify
+ * is the stop, to signal that the search should stop.
+ * When stop is true we return the last best root move we calculated, ignoring
+ * everything that was calculated after, because the search probably didn't
+ * finish.
+ * After signaling stop the calling thread must not change the stop information
+ * until the search thread terminates, otherwise the search functions might
+ * stop while this function might not and it will continue searching.
  */
-Move search_get_best_move(const Position *pos, int depth)
+void *search_get_best_move(void *data)
 {
-	const int default_depth = 6;
-	const Move null_move = 0;
+	struct thread_data *const thread_data = data;
+	pthread_mutex_lock(&thread_data->stop_mtx);
+	pthread_mutex_unlock(&thread_data->stop_mtx);
 
-	Position *mut_pos = pos_copy(pos);
-	if (depth <= 0 || depth > MAX_DEPTH)
-		depth = default_depth;
-	
-	Move best_move = null_move;
-	for (int curr_depth = 1; curr_depth <= depth; ++curr_depth)
-		best_move = search(mut_pos, curr_depth);
-	return best_move;
+	if (thread_data->settings.type == SEARCH_TYPE_INFINITE || thread_data->settings.type == SEARCH_TYPE_FIND_MATE) {
+		thread_data->settings.depth = INT_MAX;
+		thread_data->settings.nodes = LLONG_MAX;
+	}
+
+	struct search_info info;
+	struct internal_data internal_data;
+	internal_data.ply = 0;
+	internal_data.total_nodes = 0;
+	internal_data.found_mate = false;
+	thread_data->internal = &internal_data;
+	Move best_move = 0;
+	for (int depth = 1; depth <= thread_data->settings.depth && internal_data.total_nodes < thread_data->settings.nodes; ++depth) {
+		Move best_root_move = search(depth, thread_data, &info);
+		pthread_mutex_lock(&thread_data->stop_mtx);
+		if (thread_data->stop) {
+			pthread_mutex_unlock(&thread_data->stop_mtx);
+			break;
+		}
+		pthread_mutex_unlock(&thread_data->stop_mtx);
+		best_move = best_root_move;
+		if (thread_data->settings.type == SEARCH_TYPE_FIND_MATE && thread_data->internal->found_mate)
+			break;
+	}
+	pthread_mutex_lock(&thread_data->stop_mtx);
+	thread_data->best_move_sender(best_move);
+	pthread_mutex_unlock(&thread_data->stop_mtx);
+
+	return NULL;
 }
