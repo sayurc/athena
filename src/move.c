@@ -328,10 +328,10 @@ static void undo_quiet(Position *pos, Square from, Square to, Piece piece)
 }
 
 /*
- * This function returns 1 is a move is legal and 0 otherwise. Although the
- * pos argument is non-const the original position is restored so it is safe to
- * call it. A const argument would require copying the position to make changes
- * in the copy and that would be slower.
+ * This function returns true is a move is legal and false otherwise. Although
+ * the pos argument is non-const the original position is restored so it is safe
+ * to call it. A const argument would require copying the position to make
+ * changes in the copy and that would be slower.
  */
 bool move_is_legal(Position *pos, Move move)
 {
