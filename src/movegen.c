@@ -641,27 +641,27 @@ bool movegen_is_square_attacked(Square sq, Color by_side, const Position *pos)
 	Piece piece = pos_make_piece(PIECE_TYPE_PAWN, by_side);
 	const u64 pawns = pos_get_piece_bitboard(pos, piece);
 	if (get_pawn_attacks(sq, !by_side) & pawns)
-		return 1;
+		return true;
 	piece = pos_make_piece(PIECE_TYPE_KNIGHT, by_side);
 	const u64 knights = pos_get_piece_bitboard(pos, piece);
 	if (get_knight_attacks(sq) & knights)
-		return 1;
+		return true;
 	piece = pos_make_piece(PIECE_TYPE_ROOK, by_side);
 	u64 rooks_queens = pos_get_piece_bitboard(pos, piece);
 	piece = pos_make_piece(PIECE_TYPE_QUEEN, by_side);
 	rooks_queens |= pos_get_piece_bitboard(pos, piece);
 	if (get_rook_attacks(sq, occ) & rooks_queens)
-		return 1;
+		return true;
 	u64 bishops_queens = pos_get_piece_bitboard(pos, piece);
 	piece = pos_make_piece(PIECE_TYPE_BISHOP, by_side);
 	bishops_queens |= pos_get_piece_bitboard(pos, piece);
 	if (get_bishop_attacks(sq, occ) & bishops_queens)
-		return 1;
+		return true;
 	piece = pos_make_piece(PIECE_TYPE_KING, by_side);
 	const u64 king = pos_get_piece_bitboard(pos, piece);
 	if (get_king_attacks(sq) & king)
-		return 1;
-	return 0;
+		return true;
+	return false;
 }
 
 int movegen_get_number_of_pseudo_legal_moves(const Position *pos, Color c)
