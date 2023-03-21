@@ -1,5 +1,3 @@
-#define _GNU_SOURCE
-
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -14,6 +12,7 @@
 #include <check.h>
 
 #include "bit.h"
+#include "str.h"
 #include "pos.h"
 #include "move.h"
 #include "movegen.h"
@@ -237,11 +236,13 @@ static void id(void)
 static void info(const struct search_info *info)
 {
 	char *str = malloc(1), *tmp;
+	bool score_added = false;
 
 	str[0] = 0;
 
 	if (!info->flags)
 		return;
+
 	if (info->flags & INFO_FLAG_DEPTH) {
 		asprintf(&tmp, "%sdepth %d ", str, info->depth);
 		free(str);
@@ -251,6 +252,12 @@ static void info(const struct search_info *info)
 		asprintf(&tmp, "%snodes %lld ", str, info->nodes);
 		free(str);
 		str = tmp;
+	}
+	if (info->flags & INFO_FLAG_MATE && !score_added) {
+		asprintf(&tmp, "%sscore ", str);
+		free(str);
+		str = tmp;
+		score_added = true;
 	}
 	if (info->flags & INFO_FLAG_MATE) {
 		asprintf(&tmp, "%smate %lld ", str, info->mate);

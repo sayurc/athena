@@ -63,10 +63,10 @@ static bool is_killer(Move move, int depth)
 }
 
 /*
- * Return the index of what seems to be the most promising by evaluating moves.
+ * Returns the index of what seems to be the most promising by evaluating moves.
  *
  * The best move of PV nodes are stored in the transposition table so and since
- *  all the moves of PV nodes moves have been searched we know for sure that
+ * all the moves of PV nodes moves have been searched we know for sure that
  * that move is the best for that position. So the best move of PV nodes have
  * higher priority than any other moves.
  *
@@ -88,7 +88,7 @@ static bool is_killer(Move move, int depth)
  * have in the transposition table. And other moves have offset 0 because they
  * have lower priority than captures.
  */
-static size_t get_most_promising_move(const Move *moves, size_t len, Position *pos, int depth)
+static size_t get_most_promising_move(const Move *restrict moves, size_t len, Position *restrict pos, int depth)
 {
 	static const int capture_offset = INFINITE / 64;
 	static const int killer_offset = INFINITE / 32;
@@ -130,7 +130,17 @@ static bool is_in_check(const Position *pos)
 	return movegen_is_square_attacked(king_sq, !c, pos);
 }
 
-static int qsearch(int alpha, int beta, struct thread_data *thread_data, struct search_info *info)
+/*
+ * The quiescence search is performed at the leaf nodes of the main search. It
+ * searches for the best quiet position after a sequence of captures, so only
+ * capturing moves are made. This way we can avoid the horizon effect where the
+ * main search might stop at what seems to be a good position, but then a
+ * valuable piece is captured right in the next move. Thus, the quiescence
+ * search must go through all the possible captures until there are only quiet
+ * moves left as leaf nodes, which is possible because the tree of captures is
+ * not as wide as the tree of all moves. 
+ */
+static int qsearch(int alpha, int beta, struct thread_data *restrict thread_data, struct search_info *restrict info)
 {
 	pthread_mutex_lock(&thread_data->stop_mtx);
 	if (thread_data->stop) {
@@ -160,16 +170,18 @@ static int qsearch(int alpha, int beta, struct thread_data *thread_data, struct 
 		++thread_data->internal->total_nodes;
 		++info->nodes;
 
-		alpha = score > alpha ? score : alpha;
-		if (alpha >= beta)
-			break;
+		if (score > alpha) {
+			alpha = score;
+			if (alpha >= beta)
+				break;
+		}
 	}
 	free(moves);
 
 	if (!legal_moves_cnt) {
 		if (is_in_check(thread_data->settings.position)) {
-			info->mate = thread_data->internal->ply;
-			return INFINITE;
+			info->mate = (thread_data->internal->ply + 1) / 2;
+			return -INFINITE;
 		} else {
 			return 0;
 		}
@@ -179,9 +191,14 @@ static int qsearch(int alpha, int beta, struct thread_data *thread_data, struct 
 }
 
 /*
- * Return MAX_INT on checkmate and 0 on stalemate.
+ * This is the main negamax function with alpha beta pruning, it returns the
+ * best score achievable for a position. It returns -INFINITE or 0 if the best
+ * outcome calculated is a checkmate or stalemate, respectively, which means
+ * that such outcome is unavoidable. In the case of checkmate it will
+ * additionally set info->mate to the number of moves (full moves, not plies)
+ * for checkmate.
  */
-static int absearch(int depth, int alpha, int beta, struct thread_data *thread_data, struct search_info *info)
+static int negamax(int depth, int alpha, int beta, struct thread_data *restrict thread_data, struct search_info *restrict info)
 {
 	pthread_mutex_lock(&thread_data->stop_mtx);
 	if (thread_data->stop) {
@@ -198,9 +215,8 @@ static int absearch(int depth, int alpha, int beta, struct thread_data *thread_d
 
 
 	NodeType type = NODE_TYPE_ALL;
-	size_t legal_moves_cnt = 0;
 	Move best_move;
-	size_t len = 0;
+	size_t legal_moves_cnt = 0, len = 0;
 	Move *moves = movegen_get_pseudo_legal_moves(thread_data->settings.position, &len);
 	Move *const moves_ptr = moves;
 	while (len && thread_data->internal->total_nodes < thread_data->settings.nodes) {
@@ -225,7 +241,7 @@ static int absearch(int depth, int alpha, int beta, struct thread_data *thread_d
 
 		move_do(thread_data->settings.position, move);
 		++thread_data->internal->ply;
-		int score = -absearch(depth - 1, -beta, -alpha, thread_data, info);
+		int score = -negamax(depth - 1, -beta, -alpha, thread_data, info);
 		move_undo(thread_data->settings.position, move);
 		--thread_data->internal->ply;
 
@@ -236,12 +252,13 @@ static int absearch(int depth, int alpha, int beta, struct thread_data *thread_d
 			alpha = score;
 			best_move = move;
 			type = NODE_TYPE_PV;
-		}
-		if (alpha >= beta) {
-			if (!move_is_capture(move))
-				store_killer(move, depth);
-			type = NODE_TYPE_CUT;
+
+			if (alpha >= beta) {
+				if (!move_is_capture(move))
+					store_killer(move, depth);
+				type = NODE_TYPE_CUT;
 			break;
+			}
 		}
 
 		--len;
@@ -251,8 +268,8 @@ static int absearch(int depth, int alpha, int beta, struct thread_data *thread_d
 
 	if (!legal_moves_cnt) {
 		if (is_in_check(thread_data->settings.position)) {
-			info->mate = thread_data->internal->ply;
-			return INFINITE;
+			info->mate = (thread_data->internal->ply + 1) / 2;
+			return -INFINITE;
 		} else {
 			return 0;
 		}
@@ -263,6 +280,12 @@ static int absearch(int depth, int alpha, int beta, struct thread_data *thread_d
 	return alpha;
 }
 
+/*
+ * This function must be called before any searches are performed, it
+ * initializes all the tables and call other initialization functions. It does
+ * not need to be called between every search, only once (unless it's desirable
+ * to start a new search with a clean state.)
+ */
 void search_init(void)
 {
 	for (size_t i = 0; i < MAX_DEPTH; ++i) {
@@ -278,14 +301,42 @@ void search_finish(void)
 	tt_finish();
 }
 
-static double get_elapsed_time(const struct timespec *ts1, const struct timespec *ts2)
+/*
+ * Returns the elapsed time between two timestamps with nanosecond precision.
+ */
+static double get_elapsed_time(const struct timespec *restrict ts1, const struct timespec *restrict ts2)
 {
 	const double t1 = ts1->tv_sec + ts1->tv_nsec / 10e9;
 	const double t2 = ts2->tv_sec + ts2->tv_nsec / 10e9;
 	return t2 - t1;
 }
 
-static Move search(int depth, struct thread_data *thread_data, struct search_info *info)
+/*
+ * This is the root search function that calls the main negamax function, which
+ * is used to score the root moves and the best one is returned. If the position
+ * is a checkmate or stalemate for the side to move, 0 is returned. If all moves
+ * lead to checkmate or stalemate for the side to move, then any of these moves
+ * is returned.
+ * 
+ * The values set in the struct info doesn't matter since it is set to default
+ * values when this function is called, and it is also constantly updated by
+ * this and the main nexgamax function as the search runs.
+ * 
+ * The main negamax function will return -INFINITE if a checkmate for the
+ * opposite side is unavoidable, and since it will also set the number of plies
+ * to the mate in info, if the search type is SEARCH_TYPE_FIND_MATE we just have
+ * to return the move that leads to this mate as the best move and set
+ * thread_data->found_mate to true. Note that this member must not be set to
+ * true by the main negamax function when a mate is found, because the mate can
+ * only be considered reachable after the full search.
+ * 
+ * Notice that this function, along with the search functions called from it,
+ * may stop at any moment if requested. If that happens while the search is
+ * running it will simply return anything, so the calling function must check
+ * if a stop request has been received and if so ignore whatever this function
+ * returned.
+ */
+static Move search(int depth, struct thread_data *restrict thread_data, struct search_info *restrict info)
 {
 	info->depth = depth;
 	info->nodes = 0;
@@ -321,8 +372,7 @@ static Move search(int depth, struct thread_data *thread_data, struct search_inf
 
 		move_do(thread_data->settings.position, move);
 		++thread_data->internal->ply;
-		int score = depth > 1 ? -absearch(depth - 1, -beta, -alpha, thread_data, info) :
-		                         qsearch(alpha, beta, thread_data, info);
+		int score = -negamax(depth - 1, -beta, -alpha, thread_data, info);
 		move_undo(thread_data->settings.position, move);
 		--thread_data->internal->ply;
 
@@ -333,7 +383,7 @@ static Move search(int depth, struct thread_data *thread_data, struct search_inf
 			alpha = score;
 			best_move = move;
 		}
-		if (alpha == INFINITE && thread_data->settings.type == SEARCH_TYPE_FIND_MATE) {
+		if (thread_data->settings.type == SEARCH_TYPE_FIND_MATE && alpha == INFINITE && info->mate == thread_data->settings.moves_to_mate) {
 			thread_data->internal->found_mate = true;
 			best_move = move;
 			break;
@@ -341,6 +391,7 @@ static Move search(int depth, struct thread_data *thread_data, struct search_inf
 		if (alpha >= beta)
 			break;
 	}
+
 	timespec_get(&ts2, TIME_UTC);
 	double dt = get_elapsed_time(&ts1, &ts2);
 	const double nps = (double)(info->nodes - old_nodes) / dt;
@@ -349,8 +400,7 @@ static Move search(int depth, struct thread_data *thread_data, struct search_inf
 	if (alpha == INFINITE)
 		info->flags |= INFO_FLAG_MATE;
 	thread_data->info_sender(info);
-	/* Play any move if no best move was found (probably because all moves
-	 * lead to a checkmate or stalemate.) */
+
 	if (!best_move && len) {
 		for (size_t i = 0; i < len; ++i) {
 			if (move_is_legal(thread_data->settings.position, moves[i]))
@@ -364,10 +414,9 @@ static Move search(int depth, struct thread_data *thread_data, struct search_inf
 
 /*
  * The only element of the thread_data struct that the calling thread may modify
- * is the stop, to signal that the search should stop.
- * When stop is true we return the last best root move we calculated, ignoring
- * everything that was calculated after, because the search probably didn't
- * finish.
+ * is stop, to signal that the search should stop. When stop is true we return
+ * the last best root move we calculated, ignoring everything that was
+ * calculated after, because the search probably didn't finish.
  * After signaling stop the calling thread must not change the stop information
  * until the search thread terminates, otherwise the search functions might
  * stop while this function might not and it will continue searching.
@@ -379,8 +428,11 @@ void *search_get_best_move(void *data)
 	pthread_mutex_unlock(&thread_data->stop_mtx);
 
 	if (thread_data->settings.type == SEARCH_TYPE_INFINITE || thread_data->settings.type == SEARCH_TYPE_FIND_MATE) {
-		thread_data->settings.depth = INT_MAX;
+		thread_data->settings.depth = MAX_DEPTH;
 		thread_data->settings.nodes = LLONG_MAX;
+	} else {
+		if (thread_data->settings.depth > MAX_DEPTH)
+			thread_data->settings.depth = MAX_DEPTH;
 	}
 
 	struct search_info info;
