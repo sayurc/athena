@@ -170,11 +170,10 @@ static int qsearch(int alpha, int beta, struct thread_data *restrict thread_data
 		++thread_data->internal->total_nodes;
 		++info->nodes;
 
-		if (score > alpha) {
+		if (score > alpha)
 			alpha = score;
-			if (alpha >= beta)
-				break;
-		}
+		if (alpha >= beta)
+			break;
 	}
 	free(moves);
 
@@ -252,13 +251,12 @@ static int negamax(int depth, int alpha, int beta, struct thread_data *restrict 
 			alpha = score;
 			best_move = move;
 			type = NODE_TYPE_PV;
-
-			if (alpha >= beta) {
-				if (!move_is_capture(move))
-					store_killer(move, depth);
-				type = NODE_TYPE_CUT;
+		}
+		if (alpha >= beta) {
+			if (!move_is_capture(move))
+				store_killer(move, depth);
+			type = NODE_TYPE_CUT;
 			break;
-			}
 		}
 
 		--len;
