@@ -21,6 +21,11 @@
 
 #include "bit.h"
 
+/*
+ * These functions implement the xoshiro256** and SplitMix64 PRNGs, the latter
+ * being used to seed the former.
+ */
+
 static u64 s[4];
 static u64 sm_s;
 
@@ -46,6 +51,12 @@ u64 rng_next(void)
 	return result;
 }
 
+/*
+ * Since magic numbers seem to work best with numbers with sparse bits.
+ * Considering the RNG generates a uniformly distributed sequence of numbers,
+ * this function should generate numbers which have 1/8 of their bits set on
+ * average.
+ */
 u64 rng_next_sparse(void)
 {
 	return rng_next() & rng_next() & rng_next();

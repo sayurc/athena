@@ -98,8 +98,7 @@ static bool is_killer(Move move, int depth)
  * To simulate this priority order we have some offsets that act as the starting
  * point for the score of a move which is then added to the offset. Captures
  * have a smaller offset than killer moves, but they are still close enough for
- * captures to surpass the killer move if it is good enough and/or the killer
- * move is bad enough.
+ * a capture to surpass a killer move if it is good enough.
  * 
  * There is no offset for the best move of PV nodes because they are always
  * searched first, so if the position is a PV node we just return the move we

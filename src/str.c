@@ -20,6 +20,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/*
+ * This is an implementation of the GNU vasprintf. We get the final string
+ * length by calling vsprintf with size 0 and string pointer NULL which makes
+ * it return the number of characters would have been written, but without
+ * writing anything. An extra character is added to the length to make place
+ * for the 0 byte.
+ */
 int vasprintf(char **restrict strp, const char *restrict fmt, va_list va)
 {
 	va_list copy;
@@ -45,6 +52,9 @@ int vasprintf(char **restrict strp, const char *restrict fmt, va_list va)
 	return ret;
 }
 
+/*
+ * This is an implementation of the GNU asprintf.
+ */
 int asprintf(char **strp, const char *fmt, ...)
 {
 	va_list va;

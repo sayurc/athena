@@ -592,7 +592,7 @@ Position *pos_copy(const Position *pos)
  * trailing white spaces. Keep in mind that whether the position is actually
  * valid according to the rules of chess is not checked, so even if the FEN
  * string is a valid FEN string according to the grammar, the position might be
- * illegal. For example, the number of pawns in the board is not checked, so it
+ * illegal. For example, the number of pawns on the board is not checked, so it
  * is possible to set up a position using a FEN string that describes a board
  * with 9 pawns. This is intentional, as the user might want to set up a
  * non-standard board.
