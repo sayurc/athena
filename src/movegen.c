@@ -418,9 +418,7 @@ static void add_move(MoveList *list, Move move)
 	++list->len;
 }
 
-// 2k5/8/5Pp1/8/8/8/8/2K5 w - - 0 1
-static void add_pseudo_legal_pawn_moves(MoveList *move_stack,
-					const Position *pos)
+static void add_pseudo_legal_pawn_moves(MoveList *restrict list, const Position *restrict pos)
 {
 	const Color color = pos_get_side_to_move(pos);
 	const Piece piece = pos_make_piece(PIECE_TYPE_PAWN,
@@ -436,7 +434,7 @@ static void add_pseudo_legal_pawn_moves(MoveList *move_stack,
 			const Square from = get_index_of_first_bit_and_unset(&attackers);
 			const Square to = sq;
 			const Move move = move_new(from, to, MOVE_EP_CAPTURE);
-			add_move(move_stack, move);
+			add_move(list, move);
 		}
 	}
 
@@ -450,11 +448,11 @@ static void add_pseudo_legal_pawn_moves(MoveList *move_stack,
 				for (MoveType move_type = MOVE_KNIGHT_PROMOTION;
 				move_type <= MOVE_QUEEN_PROMOTION; ++move_type) {
 					const Move move = move_new(from, to, move_type);
-					add_move(move_stack, move);
+					add_move(list, move);
 				}
 			} else {
 				const Move move = move_new(from, to, MOVE_QUIET);
-				add_move(move_stack, move);
+				add_move(list, move);
 			}
 		}
 
@@ -462,7 +460,7 @@ static void add_pseudo_legal_pawn_moves(MoveList *move_stack,
 		if (targets) {
 			const Square to = get_index_of_first_bit(targets);
 			const Move move = move_new(from, to, MOVE_DOUBLE_PAWN_PUSH);
-			add_move(move_stack, move);
+			add_move(list, move);
 		}
 
 		targets = get_pawn_attacks(from, color) & enemy_pieces;
@@ -473,18 +471,17 @@ static void add_pseudo_legal_pawn_moves(MoveList *move_stack,
 				move_type <= MOVE_QUEEN_PROMOTION_CAPTURE;
 				++move_type) {
 					const Move move = move_new(from, to, move_type);
-					add_move(move_stack, move);
+					add_move(list, move);
 				}
 			} else {
 				const Move move = move_new(from, to, MOVE_CAPTURE);
-				add_move(move_stack, move);
+				add_move(list, move);
 			}
 		}
 	}
 }
 
-static void add_pseudo_legal_king_moves(MoveList *move_stack,
-					const Position *pos)
+static void add_pseudo_legal_king_moves(MoveList *restrict list, const Position *restrict pos)
 {
 	const Color color = pos_get_side_to_move(pos);
 	const Square from = pos_get_king_square(pos, color);
@@ -493,10 +490,6 @@ static void add_pseudo_legal_king_moves(MoveList *move_stack,
 	const u64 friendly_pieces = occ & pos_get_color_bitboard(pos, color);
 
 	if (pos_has_castling_right(pos, color, CASTLING_SIDE_KING)) {
-		if (color == COLOR_BLACK && from != E8) {
-			puts("BUG BUG BUG");
-			abort();
-		}
 		const Square k_castling_test_sq1 = color == COLOR_WHITE ? F1 : F8;
 		const Square k_castling_test_sq2 = color == COLOR_WHITE ? G1 : G8;
 		if (pos_get_piece_at(pos, k_castling_test_sq1) == PIECE_NONE &&
@@ -506,14 +499,10 @@ static void add_pseudo_legal_king_moves(MoveList *move_stack,
 		    !movegen_is_square_attacked(from, !color, pos)) {
 			const Square to   = color == COLOR_WHITE ? G1 : G8;
 			const Move move = move_new(from, to, MOVE_KING_CASTLE);
-			add_move(move_stack, move);
+			add_move(list, move);
 		}
 	}
 	if (pos_has_castling_right(pos, color, CASTLING_SIDE_QUEEN)) {
-		if (color == COLOR_BLACK && from != E8) {
-			puts("BUG BUG BUG");
-			abort();
-		}
 		const Square q_castling_test_sq1 = color == COLOR_WHITE ? D1 : D8;
 		const Square q_castling_test_sq2 = color == COLOR_WHITE ? C1 : C8;
 		const Square q_castling_test_sq3 = color == COLOR_WHITE ? B1 : B8;
@@ -525,7 +514,7 @@ static void add_pseudo_legal_king_moves(MoveList *move_stack,
 		    !movegen_is_square_attacked(from, !color, pos)) {
 			const Square to   = color == COLOR_WHITE ? C1 : C8;
 			const Move move = move_new(from, to, MOVE_QUEEN_CASTLE);
-			add_move(move_stack, move);
+			add_move(list, move);
 		}
 	}
 
@@ -535,12 +524,11 @@ static void add_pseudo_legal_king_moves(MoveList *move_stack,
 		const Move move = pos_get_piece_at(pos, to) == PIECE_NONE ?
 		                  move_new(from, to, MOVE_QUIET) :
 		                  move_new(from, to, MOVE_CAPTURE);
-		add_move(move_stack, move);
+		add_move(list, move);
 	}
 }
 
-static inline void add_pseudo_legal_moves(
-MoveList *list, PieceType piece_type, const Position *pos)
+static inline void add_pseudo_legal_moves(MoveList *restrict list, PieceType piece_type, const Position *restrict pos)
 {
 	const Color color = pos_get_side_to_move(pos);
 	const Piece piece = pos_make_piece(piece_type, color);
@@ -585,8 +573,7 @@ MoveList *list, PieceType piece_type, const Position *pos)
 	}
 }
 
-static int get_number_of_pseudo_legal_moves(PieceType piece_type, Color c,
-					    const Position *pos)
+static int get_number_of_pseudo_legal_moves(PieceType piece_type, Color c, const Position *pos)
 {
 	const Piece piece = pos_make_piece(piece_type, c);
 	const u64 occ = pos_get_color_bitboard(pos, c)
@@ -697,7 +684,7 @@ int movegen_get_number_of_pseudo_legal_moves(const Position *pos, Color c)
  * (that is, moves that may put the king in check), or NULL if no moves are
  * possible.
  */
-Move *movegen_get_pseudo_legal_moves(const Position *pos, size_t *len)
+Move *movegen_get_pseudo_legal_moves(const Position *restrict pos, size_t *restrict len)
 {
 	const size_t initial_capacity = 2 << 8;
 	MoveList list;
