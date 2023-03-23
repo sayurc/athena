@@ -41,7 +41,8 @@ static pthread_t search_thread;
 static bool started_search = false;
 static bool newgame_has_been_run = false;
 static Position *current_position = NULL;
-static struct thread_data search_thread_data;
+static pthread_mutex_t search_stop_mtx = PTHREAD_MUTEX_INITIALIZER;
+static bool search_stop = false;
 
 static const size_t max_lan_len = 5;
 
@@ -296,12 +297,10 @@ static void info(const struct search_info *info)
 static void quit(void)
 {
 	if (started_search) {
-		pthread_mutex_lock(&search_thread_data.stop_mtx);
-		search_thread_data.stop = true;
-		pthread_mutex_unlock(&search_thread_data.stop_mtx);
+		pthread_mutex_lock(&search_stop_mtx);
+		search_stop = true;
+		pthread_mutex_unlock(&search_stop_mtx);
 		pthread_join(search_thread, NULL);
-		pos_destroy(search_thread_data.settings.position);
-		pthread_mutex_destroy(&search_thread_data.stop_mtx);
 		started_search = false;
 	}
 	if (current_position)
@@ -317,12 +316,10 @@ static void quit(void)
 static void stop(void)
 {
 	if (started_search) {
-		pthread_mutex_lock(&search_thread_data.stop_mtx);
-		search_thread_data.stop = true;
-		pthread_mutex_unlock(&search_thread_data.stop_mtx);
+		pthread_mutex_lock(&search_stop_mtx);
+		search_stop = true;
+		pthread_mutex_unlock(&search_stop_mtx);
 		pthread_join(search_thread, NULL);
-		pos_destroy(search_thread_data.settings.position);
-		pthread_mutex_destroy(&search_thread_data.stop_mtx);
 		started_search = false;
 	}
 }
@@ -334,7 +331,6 @@ static void go(void)
 {
 	if (started_search) {
 		pthread_join(search_thread, NULL);
-		pos_destroy(search_thread_data.settings.position);
 		started_search = false;
 	}
 
@@ -343,73 +339,57 @@ static void go(void)
 		return;
 	}
 
-	pthread_mutex_init(&search_thread_data.stop_mtx, NULL);
-	search_thread_data.stop = false;
-	search_thread_data.best_move_sender = bestmove;
-	search_thread_data.info_sender = info;
-	search_thread_data.settings.position = pos_copy(current_position);
-	search_thread_data.settings.type = SEARCH_TYPE_INFINITE;
-	search_thread_data.settings.depth = INT_MAX;
-	search_thread_data.settings.nodes = LLONG_MAX;
+	struct search_argument arg;
+	arg.stop_mtx = &search_stop_mtx;
+	arg.stop = &search_stop;
+	arg.settings.best_move_sender = bestmove;
+	arg.settings.info_sender = info;
+	arg.settings.position = pos_copy(current_position);
+	arg.settings.infinite = true;
+	arg.settings.depth = INT_MAX;
+	arg.settings.nodes = LLONG_MAX;
 
 	char *str = strtok(NULL, " ");
 	while (str) {
-		if (!strcmp(str, "depth")) {
-			search_thread_data.settings.type = SEARCH_TYPE_NORMAL;
-			str = strtok(NULL, " ");
-			if (!str) {
-				fprintf(stderr, "Invalid UCI command.\n");
-				pthread_mutex_destroy(&search_thread_data.stop_mtx);
-				return;
-			}
-			char *endptr = NULL;
-			errno = 0;
-			search_thread_data.settings.depth = strtol(str, &endptr, 10);
-			if (errno == ERANGE || endptr == str) {
-				fprintf(stderr, "Invalid UCI command.\n");
-				pthread_mutex_destroy(&search_thread_data.stop_mtx);
-				return;
-			}
-		} else if (!strcmp(str, "nodes")) {
-			search_thread_data.settings.type = SEARCH_TYPE_NORMAL;
-			str = strtok(NULL, " ");
-			if (!str) {
-				fprintf(stderr, "Invalid UCI command.\n");
-				pthread_mutex_destroy(&search_thread_data.stop_mtx);
-				return;
-			}
-			char *endptr = NULL;
-			errno = 0;
-			search_thread_data.settings.nodes = strtol(str, &endptr, 10);
-			if (errno == ERANGE || endptr == str) {
-				fprintf(stderr, "Invalid UCI command.\n");
-				pthread_mutex_destroy(&search_thread_data.stop_mtx);
-				return;
-			}
-		} else if (!strcmp(str, "infinite")) {
-			search_thread_data.settings.type = SEARCH_TYPE_INFINITE;
-		} else if (!strcmp(str, "mate")) {
-			search_thread_data.settings.type = SEARCH_TYPE_FIND_MATE;
-			str = strtok(NULL, " ");
-			if (!str)
-				return;
-			char *endptr = NULL;
-			errno = 0;
-			search_thread_data.settings.moves_to_mate = strtol(str, &endptr, 10);
-			if (errno == ERANGE || endptr == str)
-				return;
+		if (!strcmp(str, "infinite")) {
+			arg.settings.infinite = true;
 		} else {
-			break;
+			const char *const value = strtok(NULL, " ");
+			if (!value)
+				return;
+			char *endptr = NULL;
+			errno = 0;
+			long long x = strtoll(value, &endptr, 10);
+			if (errno == ERANGE || endptr == value)
+				return;
+
+			if (!strcmp(str, "depth"))
+				arg.settings.depth = x;
+			else if (!strcmp(str, "nodes"))
+				arg.settings.nodes = x;
+			else if (!strcmp(str, "mate"))
+				arg.settings.mate = x;
+			else if (!strcmp(str, "wtime"))
+				arg.settings.time[COLOR_WHITE] = x;
+			else if (!strcmp(str, "btime"))
+				arg.settings.time[COLOR_BLACK] = x;
+			else if (!strcmp(str, "winc"))
+				arg.settings.inc[COLOR_WHITE] = x;
+			else if (!strcmp(str, "binc"))
+				arg.settings.inc[COLOR_BLACK] = x;
+			else if (!strcmp(str, "movestogo"))
+				arg.settings.movestogo = x;
+			else
+				break;
 		}
 		str = strtok(NULL, " ");
 	}
 
-	if (pthread_create(&search_thread, NULL, search_get_best_move, &search_thread_data)) {
+	if (pthread_create(&search_thread, NULL, search_get_best_move, &arg)) {
 		perror("Athena");
-		pthread_mutex_destroy(&search_thread_data.stop_mtx);
 	} else {
 		started_search = true;
-		search_thread_data.stop = false;
+		search_stop = false;
 	}
 }
 

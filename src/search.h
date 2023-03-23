@@ -34,29 +34,25 @@ struct search_info {
 	long long mate;
 };
 
-enum search_type {
-	SEARCH_TYPE_NORMAL,
-	SEARCH_TYPE_INFINITE,
-	SEARCH_TYPE_FIND_MATE,
-}; 
+struct thread_data;
 
 struct search_settings {
 	Position *position;
-	enum search_type type;
+	bool infinite;
 	int depth;
+	int mate;
+	int movestogo;
 	long long nodes;
-	int moves_to_mate;
-};
-
-struct internal_data;
-
-struct thread_data {
-	pthread_mutex_t stop_mtx;
-	bool stop;
-	struct search_settings settings;
+	long long time[2];
+	long long inc[2];
 	void (*best_move_sender)(Move);
 	void (*info_sender)(const struct search_info *);
-	struct internal_data *internal;
+};
+
+struct search_argument {
+	struct search_settings settings;
+	pthread_mutex_t *stop_mtx;
+	bool *stop;
 };
 
 void *search_get_best_move(void *data);

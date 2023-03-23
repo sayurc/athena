@@ -37,7 +37,8 @@
 #include "rng.h"
 #include "search.h"
 
-struct internal_data {
+struct thread_data {
+	struct search_settings settings;
 	long long total_nodes;
 	long ply;
 	bool found_mate;
@@ -105,7 +106,8 @@ static bool is_killer(Move move, int depth)
  * have in the transposition table. And other moves have offset 0 because they
  * have lower priority than captures.
  */
-static size_t get_most_promising_move(const Move *restrict moves, size_t len, Position *restrict pos, int depth)
+static size_t get_most_promising_move(const Move *restrict moves, size_t len,
+Position *restrict pos, int depth)
 {
 	static const int capture_offset = INFINITE / 64;
 	static const int killer_offset = INFINITE / 32;
@@ -157,34 +159,35 @@ static bool is_in_check(const Position *pos)
  * moves left as leaf nodes, which is possible because the tree of captures is
  * not as wide as the tree of all moves. 
  */
-static int qsearch(int alpha, int beta, struct thread_data *restrict thread_data, struct search_info *restrict info)
+static int qsearch(int alpha, int beta, struct thread_data *tdata,
+struct search_info *info, bool *stop, pthread_mutex_t *mtx)
 {
-	pthread_mutex_lock(&thread_data->stop_mtx);
-	if (thread_data->stop) {
-		pthread_mutex_unlock(&thread_data->stop_mtx);
+	pthread_mutex_lock(mtx);
+	if (*stop) {
+		pthread_mutex_unlock(mtx);
 		return alpha;
 	}
-	pthread_mutex_unlock(&thread_data->stop_mtx);
+	pthread_mutex_unlock(mtx);
 
-	int score = eval_evaluate(thread_data->settings.position);
+	int score = eval_evaluate(tdata->settings.position);
 	alpha = score > alpha ? score : alpha;
 
 	size_t len, legal_moves_cnt = 0;
-	Move *moves = movegen_get_pseudo_legal_moves(thread_data->settings.position, &len);
-	for (size_t i = 0; i < len && thread_data->internal->total_nodes < thread_data->settings.nodes; ++i) {
+	Move *moves = movegen_get_pseudo_legal_moves(tdata->settings.position, &len);
+	for (size_t i = 0; i < len && tdata->total_nodes < tdata->settings.nodes; ++i) {
 		Move move = moves[i];
-		if (move_is_legal(thread_data->settings.position, move))
+		if (move_is_legal(tdata->settings.position, move))
 			++legal_moves_cnt;
-		if (!move_is_legal(thread_data->settings.position, move) || !move_is_capture(move))
+		if (!move_is_legal(tdata->settings.position, move) || !move_is_capture(move))
 			continue;
 
-		move_do(thread_data->settings.position, move);
-		++thread_data->internal->ply;
-		score = -qsearch(-beta, -alpha, thread_data, info);
-		move_undo(thread_data->settings.position, move);
-		--thread_data->internal->ply;
+		move_do(tdata->settings.position, move);
+		++tdata->ply;
+		score = -qsearch(-beta, -alpha, tdata, info, stop, mtx);
+		move_undo(tdata->settings.position, move);
+		--tdata->ply;
 
-		++thread_data->internal->total_nodes;
+		++tdata->total_nodes;
 		++info->nodes;
 
 		if (score > alpha)
@@ -195,8 +198,8 @@ static int qsearch(int alpha, int beta, struct thread_data *restrict thread_data
 	free(moves);
 
 	if (!legal_moves_cnt) {
-		if (is_in_check(thread_data->settings.position)) {
-			info->mate = (thread_data->internal->ply + 1) / 2;
+		if (is_in_check(tdata->settings.position)) {
+			info->mate = (tdata->ply + 1) / 2;
 			return -INFINITE;
 		} else {
 			return 0;
@@ -214,54 +217,55 @@ static int qsearch(int alpha, int beta, struct thread_data *restrict thread_data
  * additionally set info->mate to the number of moves (full moves, not plies)
  * for checkmate.
  */
-static int negamax(int depth, int alpha, int beta, struct thread_data *restrict thread_data, struct search_info *restrict info)
+static int negamax(int depth, int alpha, int beta, struct thread_data *tdata,
+struct search_info *info, bool *stop, pthread_mutex_t *mtx)
 {
-	pthread_mutex_lock(&thread_data->stop_mtx);
-	if (thread_data->stop) {
-		pthread_mutex_unlock(&thread_data->stop_mtx);
+	pthread_mutex_lock(mtx);
+	if (*stop) {
+		pthread_mutex_unlock(mtx);
 		return alpha;
 	}
-	pthread_mutex_unlock(&thread_data->stop_mtx);
+	pthread_mutex_unlock(mtx);
 
 	NodeData pos_data;
-	if (tt_get(&pos_data, thread_data->settings.position) && pos_data.depth >= depth)
+	if (tt_get(&pos_data, tdata->settings.position) && pos_data.depth >= depth)
 		return pos_data.score;
 	if (!depth)
-		return qsearch(alpha, beta, thread_data, info);
+		return qsearch(alpha, beta, tdata, info, stop, mtx);
 
 
 	NodeType type = NODE_TYPE_ALL;
 	Move best_move;
 	size_t legal_moves_cnt = 0, len = 0;
-	Move *moves = movegen_get_pseudo_legal_moves(thread_data->settings.position, &len);
+	Move *moves = movegen_get_pseudo_legal_moves(tdata->settings.position, &len);
 	Move *const moves_ptr = moves;
-	while (len && thread_data->internal->total_nodes < thread_data->settings.nodes) {
+	while (len && tdata->total_nodes < tdata->settings.nodes) {
 		/* Lazily sort moves instead of doing it all at once, this way
 		 * we avoid wasting time sorting moves of branches that are
 		 * pruned. */
 		if (len > 1) {
 			Move first = moves[0];
-			size_t i = get_most_promising_move(moves, len, thread_data->settings.position, depth);
+			size_t i = get_most_promising_move(moves, len, tdata->settings.position, depth);
 			Move most_promising = moves[i];
 			moves[0] = most_promising;
 			moves[i] = first;
 		}
 
 		Move move = *moves;
-		if (!move_is_legal(thread_data->settings.position, move)) {
+		if (!move_is_legal(tdata->settings.position, move)) {
 			--len;
 			++moves;
 			continue;
 		}
 		++legal_moves_cnt;
 
-		move_do(thread_data->settings.position, move);
-		++thread_data->internal->ply;
-		int score = -negamax(depth - 1, -beta, -alpha, thread_data, info);
-		move_undo(thread_data->settings.position, move);
-		--thread_data->internal->ply;
+		move_do(tdata->settings.position, move);
+		++tdata->ply;
+		int score = -negamax(depth - 1, -beta, -alpha, tdata, info, stop, mtx);
+		move_undo(tdata->settings.position, move);
+		--tdata->ply;
 
-		++thread_data->internal->total_nodes;
+		++tdata->total_nodes;
 		++info->nodes;
 
 		if (score > alpha) {
@@ -282,15 +286,15 @@ static int negamax(int depth, int alpha, int beta, struct thread_data *restrict 
 	free(moves_ptr);
 
 	if (!legal_moves_cnt) {
-		if (is_in_check(thread_data->settings.position)) {
-			info->mate = (thread_data->internal->ply + 1) / 2;
+		if (is_in_check(tdata->settings.position)) {
+			info->mate = (tdata->ply + 1) / 2;
 			return -INFINITE;
 		} else {
 			return 0;
 		}
 	}
 
-	tt_entry_init(&pos_data, alpha, depth, type, best_move, thread_data->settings.position);
+	tt_entry_init(&pos_data, alpha, depth, type, best_move, tdata->settings.position);
 	tt_store(&pos_data);
 	return alpha;
 }
@@ -319,7 +323,8 @@ void search_finish(void)
 /*
  * Returns the elapsed time between two timestamps with nanosecond precision.
  */
-static double get_elapsed_time(const struct timespec *restrict ts1, const struct timespec *restrict ts2)
+static double get_elapsed_time(const struct timespec *restrict ts1,
+const struct timespec *restrict ts2)
 {
 	const double t1 = ts1->tv_sec + ts1->tv_nsec / 10e9;
 	const double t2 = ts2->tv_sec + ts2->tv_nsec / 10e9;
@@ -333,17 +338,13 @@ static double get_elapsed_time(const struct timespec *restrict ts1, const struct
  * lead to checkmate or stalemate for the side to move, then any of these moves
  * is returned.
  * 
- * The values set in the struct info doesn't matter since it is set to default
- * values when this function is called, and it is also constantly updated by
- * this and the main nexgamax function as the search runs.
- * 
  * The main negamax function will return -INFINITE if a checkmate for the
  * opposite side is unavoidable, and since it will also set the number of plies
- * to the mate in info, if the search type is SEARCH_TYPE_FIND_MATE we just have
- * to return the move that leads to this mate as the best move and set
+ * to the mate in info, if we are searching for a mate we just have to return
+ * the move that leads to this mate as the best move and set
  * thread_data->found_mate to true. Note that this member must not be set to
  * true by the main negamax function when a mate is found, because the mate can
- * only be considered reachable after the full search.
+ * only be considered reachable after the search finishes.
  * 
  * Notice that this function, along with the search functions called from it,
  * may stop at any moment if requested. If that happens while the search is
@@ -351,55 +352,57 @@ static double get_elapsed_time(const struct timespec *restrict ts1, const struct
  * if a stop request has been received and if so ignore whatever this function
  * returned.
  */
-static Move search(int depth, struct thread_data *restrict thread_data, struct search_info *restrict info)
+static Move search(int depth, struct thread_data *tdata,
+bool *stop, pthread_mutex_t *mtx)
 {
-	info->depth = depth;
-	info->nodes = 0;
-	info->nps = 0;
-	info->mate = 0;
+	struct search_info info;
+	info.depth = depth;
+	info.nodes = 0;
+	info.nps = 0;
+	info.mate = 0;
 
 	int alpha = -INFINITE, beta = INFINITE;
 	Move best_move = 0;
 	size_t len;
-	Move *const moves = movegen_get_pseudo_legal_moves(thread_data->settings.position, &len);
+	Move *const moves = movegen_get_pseudo_legal_moves(tdata->settings.position, &len);
 	if (!len) {
-		if (is_in_check(thread_data->settings.position))
+		if (is_in_check(tdata->settings.position))
 			return -INFINITE;
 		return 0;
 	}
 
 	struct timespec ts1, ts2;
 	long long old_nodes;
-	old_nodes = info->nodes;
+	old_nodes = info.nodes;
 	timespec_get(&ts1, TIME_UTC);
 
-	for (size_t i = 0; i < len && thread_data->internal->total_nodes < thread_data->settings.nodes; ++i) {
-		pthread_mutex_lock(&thread_data->stop_mtx);
-		if (thread_data->stop) {
-			pthread_mutex_unlock(&thread_data->stop_mtx);
+	for (size_t i = 0; i < len && tdata->total_nodes < tdata->settings.nodes; ++i) {
+		pthread_mutex_lock(mtx);
+		if (*stop) {
+			pthread_mutex_unlock(mtx);
 			break;
 		}
-		pthread_mutex_unlock(&thread_data->stop_mtx);
+		pthread_mutex_unlock(mtx);
 
 		Move move = moves[i];
-		if (!move_is_legal(thread_data->settings.position, move))
+		if (!move_is_legal(tdata->settings.position, move))
 			continue;
 
-		move_do(thread_data->settings.position, move);
-		++thread_data->internal->ply;
-		int score = -negamax(depth - 1, -beta, -alpha, thread_data, info);
-		move_undo(thread_data->settings.position, move);
-		--thread_data->internal->ply;
+		move_do(tdata->settings.position, move);
+		++tdata->ply;
+		int score = -negamax(depth - 1, -beta, -alpha, tdata, &info, stop, mtx);
+		move_undo(tdata->settings.position, move);
+		--tdata->ply;
 
-		++thread_data->internal->total_nodes;
-		++info->nodes;
+		++tdata->total_nodes;
+		++info.nodes;
 
 		if (score > alpha) {
 			alpha = score;
 			best_move = move;
 		}
-		if (thread_data->settings.type == SEARCH_TYPE_FIND_MATE && alpha == INFINITE && info->mate == thread_data->settings.moves_to_mate) {
-			thread_data->internal->found_mate = true;
+		if (tdata->settings.mate && alpha == INFINITE && info.mate == tdata->settings.mate) {
+			tdata->found_mate = true;
 			best_move = move;
 			break;
 		}
@@ -409,16 +412,16 @@ static Move search(int depth, struct thread_data *restrict thread_data, struct s
 
 	timespec_get(&ts2, TIME_UTC);
 	double dt = get_elapsed_time(&ts1, &ts2);
-	const double nps = (double)(info->nodes - old_nodes) / dt;
-	info->nps = (long long)round(nps);
-	info->flags = INFO_FLAG_DEPTH | INFO_FLAG_NODES | INFO_FLAG_NPS;
+	const double nps = (double)(info.nodes - old_nodes) / dt;
+	info.nps = (long long)round(nps);
+	info.flags = INFO_FLAG_DEPTH | INFO_FLAG_NODES | INFO_FLAG_NPS;
 	if (alpha == INFINITE)
-		info->flags |= INFO_FLAG_MATE;
-	thread_data->info_sender(info);
+		info.flags |= INFO_FLAG_MATE;
+	tdata->settings.info_sender(&info);
 
 	if (!best_move && len) {
 		for (size_t i = 0; i < len; ++i) {
-			if (move_is_legal(thread_data->settings.position, moves[i]))
+			if (move_is_legal(tdata->settings.position, moves[i]))
 				best_move = moves[i];
 		}
 	}
@@ -428,50 +431,51 @@ static Move search(int depth, struct thread_data *restrict thread_data, struct s
 }
 
 /*
- * The only element of the thread_data struct that the calling thread may modify
- * is stop, to signal that the search should stop. When stop is true we return
- * the last best root move we calculated, ignoring everything that was
- * calculated after, because the search probably didn't finish.
+ * When stop is true we return the last best root move we calculated, ignoring
+ * everything that was calculated after, because the search probably didn't
+ * finish.
  * After signaling stop the calling thread must not change the stop information
  * until the search thread terminates, otherwise the search functions might
  * stop while this function might not and it will continue searching.
  */
 void *search_get_best_move(void *data)
 {
-	struct thread_data *const thread_data = data;
-	pthread_mutex_lock(&thread_data->stop_mtx);
-	pthread_mutex_unlock(&thread_data->stop_mtx);
+	struct search_argument *const arg = data;
+	struct thread_data tdata;
+	tdata.settings = arg->settings;
+	tdata.settings.position = pos_copy(arg->settings.position);
 
-	if (thread_data->settings.type == SEARCH_TYPE_INFINITE || thread_data->settings.type == SEARCH_TYPE_FIND_MATE) {
-		thread_data->settings.depth = MAX_DEPTH;
-		thread_data->settings.nodes = LLONG_MAX;
+	bool *const stop = arg->stop;
+	pthread_mutex_t *const mtx = arg->stop_mtx;
+
+	if (tdata.settings.infinite || tdata.settings.mate) {
+		tdata.settings.depth = MAX_DEPTH;
+		tdata.settings.nodes = LLONG_MAX;
 	} else {
-		if (thread_data->settings.depth > MAX_DEPTH)
-			thread_data->settings.depth = MAX_DEPTH;
+		if (tdata.settings.depth > MAX_DEPTH)
+			tdata.settings.depth = MAX_DEPTH;
 	}
 
-	struct search_info info;
-	struct internal_data internal_data;
-	internal_data.ply = 0;
-	internal_data.total_nodes = 0;
-	internal_data.found_mate = false;
-	thread_data->internal = &internal_data;
+	tdata.ply = 0;
+	tdata.total_nodes = 0;
+	tdata.found_mate = false;
 	Move best_move = 0;
-	for (int depth = 1; depth <= thread_data->settings.depth && internal_data.total_nodes < thread_data->settings.nodes; ++depth) {
-		Move best_root_move = search(depth, thread_data, &info);
-		pthread_mutex_lock(&thread_data->stop_mtx);
-		if (thread_data->stop) {
-			pthread_mutex_unlock(&thread_data->stop_mtx);
+	for (int depth = 1; depth <= tdata.settings.depth && tdata.total_nodes < tdata.settings.nodes; ++depth) {
+		Move best_root_move = search(depth, &tdata, stop, mtx);
+		pthread_mutex_lock(mtx);
+		if (*stop) {
+			pthread_mutex_unlock(mtx);
 			break;
 		}
-		pthread_mutex_unlock(&thread_data->stop_mtx);
+		pthread_mutex_unlock(mtx);
 		best_move = best_root_move;
-		if (thread_data->settings.type == SEARCH_TYPE_FIND_MATE && thread_data->internal->found_mate)
+		if (tdata.settings.mate && tdata.found_mate)
 			break;
 	}
-	pthread_mutex_lock(&thread_data->stop_mtx);
-	thread_data->best_move_sender(best_move);
-	pthread_mutex_unlock(&thread_data->stop_mtx);
+	pthread_mutex_lock(mtx);
+	tdata.settings.best_move_sender(best_move);
+	pthread_mutex_unlock(mtx);
 
+	pos_destroy(tdata.settings.position);
 	return NULL;
 }
