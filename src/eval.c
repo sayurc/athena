@@ -159,29 +159,6 @@ const int capture_attacker_score_table[6] = {
 };
 static int average_mvv_lva_score;
 
-static int factorial(int n)
-{
-	if (n == 0)
-		return 1;
-	return n * factorial(n - 1);
-}
-
-/*
- * Initialize the average MVV-LVA score considering all possible pairs of
- * attacker and target.
- */
-static int init_average_mvv_lva_score(void)
-{
-	const size_t num_pieces = 6;
-	int sum = 0;
-	for (size_t i = 0; i < num_pieces; ++i) {
-		for (size_t j = 0; j < num_pieces; ++j)
-			sum += capture_target_score_table[i] + capture_attacker_score_table[j];
-	}
-	int combinations = factorial(num_pieces) / (factorial(2) * factorial(num_pieces - 2));
-	return sum / combinations;
-}
-
 static void init_possible_moves_table(void)
 {
 	for (Square sq = A1; sq <= H8; ++sq) {
@@ -417,5 +394,4 @@ void eval_init(void)
 {
 	init_possible_moves_table();
 	init_square_tables();
-	init_average_mvv_lva_score();
 }
