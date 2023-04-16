@@ -42,6 +42,7 @@ struct search_settings {
 	int depth;
 	int mate;
 	int movestogo;
+	int perft;
 	long long nodes;
 	long long time[2];
 	long long inc[2];
@@ -55,7 +56,7 @@ struct search_argument {
 	bool *stop;
 };
 
-void *search_get_best_move(void *data);
+void *search_run(void *data);
 void search_finish(void);
 void search_init(void);
 

@@ -55,7 +55,7 @@ int vasprintf(char **restrict strp, const char *restrict fmt, va_list va)
 /*
  * This is an implementation of the GNU asprintf.
  */
-int asprintf(char **strp, const char *fmt, ...)
+int asprintf(char **restrict strp, const char *restrict fmt, ...)
 {
 	va_list va;
 

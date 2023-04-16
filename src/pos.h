@@ -51,6 +51,11 @@ typedef enum square {
 	A8, B8, C8, D8, E8, F8, G8, H8,
 } Square;
 
+typedef enum square_color {
+	SQUARE_COLOR_LIGHT,
+	SQUARE_COLOR_DARK,
+} SquareColor;
+
 /*
  * It's safe to get the opposite color with the ! operator on the color.
  */
@@ -131,5 +136,6 @@ Rank pos_get_rank_of_square(Square sq);
 Color pos_get_piece_color(Piece piece);
 PieceType pos_get_piece_type(Piece piece);
 Piece pos_make_piece(PieceType pt, Color c);
+SquareColor pos_get_square_color(Square sq);
 
 #endif

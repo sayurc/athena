@@ -21,6 +21,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifdef __x86_64__
+#include <x86intrin.h>
+#endif
+
 #include "bit.h"
 #include "rng.h"
 #include "pos.h"
@@ -127,11 +131,20 @@ void tt_entry_init(NodeData *data, int score, int depth, NodeType type, Move bes
 	data->hash = hash(pos);
 }
 
+void tt_prefetch(void)
+{
+#ifdef __x86_64__
+	_mm_prefetch(transposition_table.ptr, _MM_HINT_T0);
+#else
+	return;
+#endif
+}
+
 void tt_init(void)
 {
 	init_hash();
 
-	transposition_table.capacity = 2 << 20;
+	transposition_table.capacity = 2 << 10;
 	transposition_table.ptr = calloc(transposition_table.capacity, sizeof(NodeData));
 	if (!transposition_table.ptr) {
 		fprintf(stderr, "Could not allocate memory");

@@ -212,12 +212,6 @@ static void do_capture(Position *pos, Square from, Square to, Piece piece)
 	const Color piece_color = pos_get_piece_color(piece);
 	const Piece captured_piece = pos_get_piece_at(pos, to);
 
-	if (captured_piece == PIECE_WHITE_KING || captured_piece == PIECE_BLACK_KING) {
-		puts("KING CAPTURED");
-		printf("from = %d\n", from);
-		printf("to = %d\n", to);
-		abort();
-	}
 	pos_unset_enpassant(pos);
 	pos_set_captured_piece(pos, captured_piece);
 	pos_remove_piece(pos, to);
@@ -379,6 +373,11 @@ Move move_new(Square from, Square to, MoveType type)
 	return (type & 0xf) << 12 | (to & 0x3f) << 6 | (from & 0x3f);
 }
 
+bool move_is_quiet(Move move)
+{
+	return !move_is_capture(move) && !move_is_promotion(move);
+}
+
 bool move_is_capture(Move move)
 {
 	const MoveType type = move_get_type(move);
@@ -389,6 +388,46 @@ bool move_is_capture(Move move)
 	       type == MOVE_ROOK_PROMOTION_CAPTURE ||
 	       type == MOVE_BISHOP_PROMOTION_CAPTURE ||
 	       type == MOVE_QUEEN_PROMOTION_CAPTURE;
+}
+
+bool move_is_promotion(Move move)
+{
+	const MoveType type = move_get_type(move);
+
+	return type == MOVE_KNIGHT_PROMOTION ||
+	       type == MOVE_BISHOP_PROMOTION ||
+	       type == MOVE_ROOK_PROMOTION   ||
+	       type == MOVE_QUEEN_PROMOTION  ||
+	       type == MOVE_KNIGHT_PROMOTION_CAPTURE ||
+	       type == MOVE_BISHOP_PROMOTION_CAPTURE ||
+	       type == MOVE_ROOK_PROMOTION_CAPTURE   ||
+	       type == MOVE_QUEEN_PROMOTION_CAPTURE;
+}
+
+PieceType move_get_promotion_piece_type(Move move)
+{
+	const MoveType type = move_get_type(move);
+
+	switch (type) {
+	case MOVE_KNIGHT_PROMOTION:
+		return PIECE_TYPE_KNIGHT;
+	case MOVE_BISHOP_PROMOTION:
+		return PIECE_TYPE_BISHOP;
+	case MOVE_ROOK_PROMOTION:
+		return PIECE_TYPE_ROOK;
+	case MOVE_QUEEN_PROMOTION:
+		return PIECE_TYPE_QUEEN;
+	case MOVE_KNIGHT_PROMOTION_CAPTURE:
+		return PIECE_TYPE_KNIGHT;
+	case MOVE_BISHOP_PROMOTION_CAPTURE:
+		return PIECE_TYPE_BISHOP;
+	case MOVE_ROOK_PROMOTION_CAPTURE:
+		return PIECE_TYPE_ROOK;
+	case MOVE_QUEEN_PROMOTION_CAPTURE:
+		return PIECE_TYPE_QUEEN;
+	default:
+		abort();
+	}
 }
 
 Square move_get_origin(Move move)

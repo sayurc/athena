@@ -82,11 +82,12 @@ struct irreversible_state {
 	u8 castling_rights_and_enpassant;
 	u8 halfmove_clock;
 	u8 captured_piece;
-	struct irreversible_state *previous;
 };
 
 struct position {
-	struct irreversible_state *irreversible;
+	struct irreversible_state *irr_states;
+	size_t irr_state_cap;
+	size_t irr_state_idx;
 	u8 side_to_move;
 	short fullmove_counter;
 	u64 color_bb[2];
@@ -229,7 +230,7 @@ static size_t parse_halfmove_clock(Position *pos, const char *str)
 		return 0;
 	else if (clock > SHRT_MAX)
 		return 0;
-	pos->irreversible->halfmove_clock = (u8)clock;
+	pos->irr_states[pos->irr_state_idx].halfmove_clock = (u8)clock;
 	return endptr - str;
 }
 
@@ -368,13 +369,13 @@ void pos_increment_fullmove_counter(Position *pos)
 
 void pos_remove_castling(Position *pos, Color c, CastlingSide side)
 {
-	pos->irreversible->castling_rights_and_enpassant &= ~(1 << side <<
-	                                                      2 * c);
+	pos->irr_states[pos->irr_state_idx].castling_rights_and_enpassant &= ~(1 << side <<
+	                                                                        2 * c);
 }
 
 void pos_add_castling(Position *pos, Color c, CastlingSide side)
 {
-	pos->irreversible->castling_rights_and_enpassant |= 1 << side <<
+	pos->irr_states[pos->irr_state_idx].castling_rights_and_enpassant |= 1 << side <<
 	                                                    2 * c;
 }
 
@@ -388,7 +389,7 @@ void pos_flip_side_to_move(Position *pos)
 
 void pos_set_captured_piece(Position *pos, Piece piece)
 {
-	pos->irreversible->captured_piece = piece;
+	pos->irr_states[pos->irr_state_idx].captured_piece = piece;
 }
 
 /*
@@ -428,17 +429,17 @@ void pos_place_piece(Position *pos, Square sq, Piece piece)
 
 void pos_reset_halfmove_clock(Position *pos)
 {
-	pos->irreversible->halfmove_clock = 0;
+	pos->irr_states[pos->irr_state_idx].halfmove_clock = 0;
 }
 
 void pos_increment_halfmove_clock(Position *pos)
 {
-	++pos->irreversible->halfmove_clock;
+	++pos->irr_states[pos->irr_state_idx].halfmove_clock;
 }
 
 void pos_unset_enpassant(Position *pos)
 {
-	pos->irreversible->castling_rights_and_enpassant &= 0xf;
+	pos->irr_states[pos->irr_state_idx].castling_rights_and_enpassant &= 0xf;
 }
 
 /*
@@ -446,19 +447,19 @@ void pos_unset_enpassant(Position *pos)
  */
 void pos_set_enpassant(Position *pos, File file)
 {
-	pos->irreversible->castling_rights_and_enpassant &= 0x8f;
-	pos->irreversible->castling_rights_and_enpassant |= 0x80;
-	pos->irreversible->castling_rights_and_enpassant |= (file & 0x7) << 4;
+	pos->irr_states[pos->irr_state_idx].castling_rights_and_enpassant &= 0x8f;
+	pos->irr_states[pos->irr_state_idx].castling_rights_and_enpassant |= 0x80;
+	pos->irr_states[pos->irr_state_idx].castling_rights_and_enpassant |= (file & 0x7) << 4;
 }
 
 Piece pos_get_captured_piece(const Position *pos)
 {
-	return pos->irreversible->captured_piece;
+	return pos->irr_states[pos->irr_state_idx].captured_piece;
 }
 
 int pos_has_castling_right(const Position *pos, Color c, CastlingSide side)
 {
-	return (pos->irreversible->castling_rights_and_enpassant &
+	return (pos->irr_states[pos->irr_state_idx].castling_rights_and_enpassant &
 	        0x1 << side << 2 * c) != 0;
 }
 
@@ -469,17 +470,17 @@ int pos_get_fullmove_counter(const Position *pos)
 
 int pos_get_halfmove_clock(const Position *pos)
 {
-	return pos->irreversible->halfmove_clock;
+	return pos->irr_states[pos->irr_state_idx].halfmove_clock;
 }
 
 int pos_enpassant_possible(const Position *pos)
 {
-	return pos->irreversible->castling_rights_and_enpassant & 0x80;
+	return pos->irr_states[pos->irr_state_idx].castling_rights_and_enpassant & 0x80;
 }
 
 Square pos_get_enpassant(const Position *pos)
 {
-	const File f = (pos->irreversible->castling_rights_and_enpassant
+	const File f = (pos->irr_states[pos->irr_state_idx].castling_rights_and_enpassant
 	                & 0x70) >> 4;
 	const Rank r = pos->side_to_move == COLOR_WHITE ? RANK_6 : RANK_3;
 	return pos_file_rank_to_square(f, r);
@@ -494,7 +495,7 @@ Square pos_get_king_square(const Position *pos, Color c)
 {
 	const Piece piece = pos_make_piece(PIECE_TYPE_KING, c);
 	const u64 bb = pos_get_piece_bitboard(pos, piece);
-	return get_index_of_first_bit(bb);
+	return get_ls1b(bb);
 }
 
 Piece pos_get_piece_at(const Position *pos, Square sq)
@@ -506,14 +507,14 @@ int pos_get_number_of_pieces(const Position *pos, Piece piece)
 {
 	const u64 bb = pos_get_piece_bitboard(pos, piece);
 
-	return count_bits(bb);
+	return popcnt(bb);
 }
 
 int pos_get_number_of_pieces_of_color(const Position *pos, Color c)
 {
 	const u64 bb = pos_get_color_bitboard(pos, c);
 
-	return count_bits(bb);
+	return popcnt(bb);
 }
 
 u64 pos_get_piece_bitboard(const Position *pos, Piece piece)
@@ -531,9 +532,7 @@ u64 pos_get_color_bitboard(const Position *pos, Color c)
 
 void pos_backtrack_irreversible_state(Position *pos)
 {
-	struct irreversible_state *const current = pos->irreversible;
-	pos->irreversible = pos->irreversible->previous;
-	free(current);
+	--pos->irr_state_idx;
 }
 
 /*
@@ -546,15 +545,17 @@ void pos_backtrack_irreversible_state(Position *pos)
  */
 void pos_start_new_irreversible_state(Position *pos)
 {
-	struct irreversible_state *current = pos->irreversible;
-	struct irreversible_state *new = malloc(sizeof(*new));
-	if (!new) {
-		fprintf(stderr, "Could not allocate memory.\n");
-		exit(1);
+	pos->irr_state_idx += 1;
+	if (pos->irr_state_idx == pos->irr_state_cap) {
+		pos->irr_state_cap += 256;
+		struct irreversible_state *new = realloc(pos->irr_states, pos->irr_state_cap * sizeof(struct irreversible_state));
+		if (!new) {
+			fprintf(stderr, "Could not allocate memory.\n");
+			exit(1);
+		}
+		pos->irr_states = new;
 	}
-	memcpy(new, current, sizeof(struct irreversible_state));
-	new->previous = current;
-	pos->irreversible = new;
+	pos->irr_states[pos->irr_state_idx] = pos->irr_states[pos->irr_state_idx - 1];
 }
 
 Position *pos_copy(const Position *pos)
@@ -566,23 +567,13 @@ Position *pos_copy(const Position *pos)
 	}
 	memcpy(copy, pos, sizeof(Position));
 
-	copy->irreversible = malloc(sizeof(struct irreversible_state));
-	if (!pos->irreversible) {
+	copy->irr_states = malloc(pos->irr_state_cap * sizeof(struct irreversible_state));
+	if (!copy->irr_states) {
 		fprintf(stderr, "Could not allocate memory.\n");
 		exit(1);
 	}
-	struct irreversible_state *ptr = copy->irreversible;
-	for (struct irreversible_state *is = pos->irreversible; is; is = is->previous) {
-		memcpy(ptr, is, sizeof(struct irreversible_state));
-		if (is->previous) {
-			ptr->previous = malloc(sizeof(struct irreversible_state));
-			if (!ptr->previous) {
-				fprintf(stderr, "Could not allocate memory.\n");
-				exit(1);
-			}
-			ptr = ptr->previous;
-		}
-	}
+	memcpy(copy->irr_states, pos->irr_states, copy->irr_state_cap * sizeof(struct irreversible_state));
+
 	return copy;
 }
 
@@ -604,15 +595,17 @@ Position *pos_create(const char *fen)
 		fprintf(stderr, "Could not allocate memory.\n");
 		exit(1);
 	}
-	pos->irreversible = malloc(sizeof(struct irreversible_state));
-	if (!pos->irreversible) {
+
+	pos->irr_state_cap = 256;
+	pos->irr_states = malloc(pos->irr_state_cap * sizeof(struct irreversible_state));
+	if (!pos->irr_states) {
 		fprintf(stderr, "Could not allocate memory.\n");
 		exit(1);
 	}
+	pos->irr_state_idx = 0;
 
 	pos->fullmove_counter = 0;
-	pos->irreversible->previous = NULL;
-	pos->irreversible->captured_piece = PIECE_NONE;
+	pos->irr_states[pos->irr_state_idx].captured_piece = PIECE_NONE;
 	pos_reset_halfmove_clock(pos);
 	pos_unset_enpassant(pos);
 	pos_remove_castling(pos, COLOR_WHITE, CASTLING_SIDE_KING);
@@ -636,12 +629,7 @@ Position *pos_create(const char *fen)
 
 void pos_destroy(Position *pos)
 {
-	struct irreversible_state *prev = NULL;
-
-	for (struct irreversible_state *p = pos->irreversible; p; p = prev) {
-		prev = p->previous;
-		free(p);
-	}
+	free(pos->irr_states);
 	free(pos);
 }
 
@@ -673,4 +661,10 @@ PieceType pos_get_piece_type(Piece piece)
 Piece pos_make_piece(PieceType pt, Color c)
 {
 	return pt << 1 | c;
+}
+
+SquareColor pos_get_square_color(Square sq)
+{
+	u64 dark = U64(0xaa55aa55aa55aa55);
+	return !((dark >> sq) & 1);
 }

@@ -339,20 +339,22 @@ static void go(void)
 		return;
 	}
 
-	struct search_argument arg;
-	arg.stop_mtx = &search_stop_mtx;
-	arg.stop = &search_stop;
-	arg.settings.best_move_sender = bestmove;
-	arg.settings.info_sender = info;
-	arg.settings.position = pos_copy(current_position);
-	arg.settings.infinite = true;
-	arg.settings.depth = INT_MAX;
-	arg.settings.nodes = LLONG_MAX;
+	struct search_argument *arg = malloc(sizeof(struct search_argument));
+	arg->stop_mtx = &search_stop_mtx;
+	arg->stop = &search_stop;
+	arg->settings.best_move_sender = bestmove;
+	arg->settings.info_sender = info;
+	arg->settings.position = pos_copy(current_position);
+	arg->settings.infinite = true;
+	arg->settings.depth = INT_MAX;
+	arg->settings.nodes = LLONG_MAX;
+	arg->settings.mate = 0;
+	arg->settings.perft = 0;
 
 	char *str = strtok(NULL, " ");
 	while (str) {
 		if (!strcmp(str, "infinite")) {
-			arg.settings.infinite = true;
+			arg->settings.infinite = true;
 		} else {
 			const char *const value = strtok(NULL, " ");
 			if (!value)
@@ -363,29 +365,35 @@ static void go(void)
 			if (errno == ERANGE || endptr == value)
 				return;
 
-			if (!strcmp(str, "depth"))
-				arg.settings.depth = x;
-			else if (!strcmp(str, "nodes"))
-				arg.settings.nodes = x;
-			else if (!strcmp(str, "mate"))
-				arg.settings.mate = x;
-			else if (!strcmp(str, "wtime"))
-				arg.settings.time[COLOR_WHITE] = x;
-			else if (!strcmp(str, "btime"))
-				arg.settings.time[COLOR_BLACK] = x;
-			else if (!strcmp(str, "winc"))
-				arg.settings.inc[COLOR_WHITE] = x;
-			else if (!strcmp(str, "binc"))
-				arg.settings.inc[COLOR_BLACK] = x;
-			else if (!strcmp(str, "movestogo"))
-				arg.settings.movestogo = x;
-			else
+			if (!strcmp(str, "depth")) {
+				arg->settings.depth = x;
+				arg->settings.infinite = false;
+			} else if (!strcmp(str, "nodes")) {
+				arg->settings.nodes = x;
+				arg->settings.infinite = false;
+			} else if (!strcmp(str, "mate")) {
+				arg->settings.mate = x;
+			} else if (!strcmp(str, "wtime")) {
+				arg->settings.time[COLOR_WHITE] = x;
+			} else if (!strcmp(str, "btime")) {
+				arg->settings.time[COLOR_BLACK] = x;
+			} else if (!strcmp(str, "winc")) {
+				arg->settings.inc[COLOR_WHITE] = x;
+			} else if (!strcmp(str, "binc")) {
+				arg->settings.inc[COLOR_BLACK] = x;
+			} else if (!strcmp(str, "movestogo")) {
+				arg->settings.movestogo = x;
+			} else if (!strcmp(str, "perft")) {
+				arg->settings.perft = x;
+			}
+			else {
 				break;
+			}
 		}
 		str = strtok(NULL, " ");
 	}
 
-	if (pthread_create(&search_thread, NULL, search_get_best_move, &arg)) {
+	if (pthread_create(&search_thread, NULL, search_run, arg)) {
 		perror("Athena");
 	} else {
 		started_search = true;

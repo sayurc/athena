@@ -61,7 +61,7 @@ typedef struct move_list {
  * 00000000	00001000
  * 
  * The ray bitboards can be used to generate sliding piece attacks, but this
- * is very slow so this is only done to initialize the attack tables for magic
+ * is very slow so it is only done to initialize the attack tables for magic
  * bitboards.
  */
 
@@ -195,7 +195,7 @@ static u64 gen_ray_attacks(u64 occ, Direction dir, Square sq)
 	u64 blockers = attacks & occ;
 	blockers |= dir_bit[dir];
 	blockers &= -blockers | dir_mask[dir];
-	sq        = get_index_of_last_bit(blockers);
+	sq        = get_ms1b(blockers);
 	return attacks ^ ray_bitboards[dir][sq];
 }
 
@@ -269,7 +269,7 @@ static void init_magics_with(SlidingAttackGenerator *attack_generator,
 
 		Magic *const m = &magics[sq];
 		m->mask = attack_generator(sq, 0) & ~edges;
-		m->shift = 64 - count_bits(m->mask);
+		m->shift = 64 - popcnt(m->mask);
 		m->ptr = sq == A1 ? attack_table : magics[sq - 1].ptr + size;
 
 		size = 0;
@@ -277,14 +277,21 @@ static void init_magics_with(SlidingAttackGenerator *attack_generator,
 		do {
 			occ[size] = bb;
 			ref[size] = attack_generator(sq, bb);
+
+			if (HAS_BMI2)
+				m->ptr[pext(bb, m->mask)] = ref[size];
+
 			bb = (bb - m->mask) & m->mask;
 			++size;
 		} while (bb);
 
+		if (HAS_BMI2)
+			continue;
+
 		memset(attempts, 0, sizeof(attempts));
 		for (size_t i = 0, current_attempt = 0; i < size;) {
 			m->num = 0;
-			while (count_bits((m->num * m->mask) >> 56) < 6)
+			while (popcnt((m->num * m->mask) >> 56) < 6)
 				m->num = rng_next_sparse();
 			++current_attempt;
 			for (i = 0; i < size; ++i) {
@@ -383,6 +390,8 @@ static u64 get_king_attacks(Square sq)
 static u64 get_rook_attacks(Square sq, u64 occ)
 {
 	const u64 *const aptr = rook_magics[sq].ptr;
+	if (HAS_BMI2)
+		return aptr[pext(occ, rook_magics[sq].mask)];
 	occ &= rook_magics[sq].mask;
 	occ *= rook_magics[sq].num;
 	occ >>= rook_magics[sq].shift;
@@ -392,6 +401,8 @@ static u64 get_rook_attacks(Square sq, u64 occ)
 static u64 get_bishop_attacks(Square sq, u64 occ)
 {
 	const u64 *const aptr = bishop_magics[sq].ptr;
+	if (HAS_BMI2)
+		return aptr[pext(occ, bishop_magics[sq].mask)];
 	occ &= bishop_magics[sq].mask;
 	occ *= bishop_magics[sq].num;
 	occ >>= bishop_magics[sq].shift;
@@ -418,7 +429,7 @@ static void add_move(MoveList *list, Move move)
 	++list->len;
 }
 
-static void add_pseudo_legal_pawn_moves(MoveList *restrict list, const Position *restrict pos)
+static void add_pawn_moves(MoveList *restrict list, const Position *restrict pos)
 {
 	const Color color = pos_get_side_to_move(pos);
 	const Piece piece = pos_make_piece(PIECE_TYPE_PAWN,
@@ -431,7 +442,7 @@ static void add_pseudo_legal_pawn_moves(MoveList *restrict list, const Position 
 		const Square sq = pos_get_enpassant(pos);
 		u64 attackers = get_pawn_attacks(sq, !color) & bb;
 		while (attackers) {
-			const Square from = get_index_of_first_bit_and_unset(&attackers);
+			const Square from = unset_ls1b(&attackers);
 			const Square to = sq;
 			const Move move = move_new(from, to, MOVE_EP_CAPTURE);
 			add_move(list, move);
@@ -439,12 +450,13 @@ static void add_pseudo_legal_pawn_moves(MoveList *restrict list, const Position 
 	}
 
 	while (bb) {
-		const Square from = get_index_of_first_bit_and_unset(&bb);
+		const Square from = unset_ls1b(&bb);
 
 		u64 targets = get_single_push(from, occ, color);
 		if (targets) {
-			const Square to = get_index_of_first_bit(targets);
-			if (to >= A8) {
+			const Square to = get_ls1b(targets);
+			if ((color == COLOR_WHITE && pos_get_rank_of_square(to) == RANK_8) ||
+			    (color == COLOR_BLACK && pos_get_rank_of_square(to) == RANK_1)) {
 				for (MoveType move_type = MOVE_KNIGHT_PROMOTION;
 				move_type <= MOVE_QUEEN_PROMOTION; ++move_type) {
 					const Move move = move_new(from, to, move_type);
@@ -458,15 +470,16 @@ static void add_pseudo_legal_pawn_moves(MoveList *restrict list, const Position 
 
 		targets = get_double_push(from, occ, color);
 		if (targets) {
-			const Square to = get_index_of_first_bit(targets);
+			const Square to = get_ls1b(targets);
 			const Move move = move_new(from, to, MOVE_DOUBLE_PAWN_PUSH);
 			add_move(list, move);
 		}
 
 		targets = get_pawn_attacks(from, color) & enemy_pieces;
 		while (targets) {
-			const Square to = get_index_of_first_bit_and_unset(&targets);
-			if (to >= A8) {
+			const Square to = unset_ls1b(&targets);
+			if ((color == COLOR_WHITE && pos_get_rank_of_square(to) == RANK_8) ||
+			    (color == COLOR_BLACK && pos_get_rank_of_square(to) == RANK_1)) {
 				for (MoveType move_type = MOVE_KNIGHT_PROMOTION_CAPTURE;
 				move_type <= MOVE_QUEEN_PROMOTION_CAPTURE;
 				++move_type) {
@@ -481,7 +494,7 @@ static void add_pseudo_legal_pawn_moves(MoveList *restrict list, const Position 
 	}
 }
 
-static void add_pseudo_legal_king_moves(MoveList *restrict list, const Position *restrict pos)
+static void add_king_moves(MoveList *restrict list, const Position *restrict pos)
 {
 	const Color color = pos_get_side_to_move(pos);
 	const Square from = pos_get_king_square(pos, color);
@@ -520,7 +533,7 @@ static void add_pseudo_legal_king_moves(MoveList *restrict list, const Position 
 
 	u64 targets = get_king_attacks(from) & ~friendly_pieces;
 	while (targets) {
-		const Square to = get_index_of_first_bit_and_unset(&targets);
+		const Square to = unset_ls1b(&targets);
 		const Move move = pos_get_piece_at(pos, to) == PIECE_NONE ?
 		                  move_new(from, to, MOVE_QUIET) :
 		                  move_new(from, to, MOVE_CAPTURE);
@@ -528,7 +541,7 @@ static void add_pseudo_legal_king_moves(MoveList *restrict list, const Position 
 	}
 }
 
-static inline void add_pseudo_legal_moves(MoveList *restrict list, PieceType piece_type, const Position *restrict pos)
+static inline void add_moves(MoveList *restrict list, PieceType piece_type, const Position *restrict pos)
 {
 	const Color color = pos_get_side_to_move(pos);
 	const Piece piece = pos_make_piece(piece_type, color);
@@ -538,11 +551,11 @@ static inline void add_pseudo_legal_moves(MoveList *restrict list, PieceType pie
 
 	u64 bb = pos_get_piece_bitboard(pos, piece);
 	while (bb) {
-		const Square from = get_index_of_first_bit_and_unset(&bb);
+		const Square from = unset_ls1b(&bb);
 		u64 targets = 0;
 		switch (piece_type) {
 		case PIECE_TYPE_PAWN:
-			add_pseudo_legal_pawn_moves(list, pos);
+			add_pawn_moves(list, pos);
 			return;
 		case PIECE_TYPE_KNIGHT:
 			targets = get_knight_attacks(from);
@@ -557,14 +570,14 @@ static inline void add_pseudo_legal_moves(MoveList *restrict list, PieceType pie
 			targets = get_queen_attacks(from, occ);
 			break;
 		case PIECE_TYPE_KING:
-			add_pseudo_legal_king_moves(list, pos);
+			add_king_moves(list, pos);
 			break;
 		default:
 			abort();
 		}
 		targets &= ~friendly_pieces;
 		while (targets) {
-			const Square to = get_index_of_first_bit_and_unset(&targets);
+			const Square to = unset_ls1b(&targets);
 			const Move move = pos_get_piece_at(pos, to) == PIECE_NONE ?
 			                  move_new(from, to, MOVE_QUIET) :
 			                  move_new(from, to, MOVE_CAPTURE);
@@ -573,7 +586,7 @@ static inline void add_pseudo_legal_moves(MoveList *restrict list, PieceType pie
 	}
 }
 
-static int get_number_of_pseudo_legal_moves(PieceType piece_type, Color c, const Position *pos)
+int movegen_get_number_of_pseudo_legal_moves(PieceType piece_type, Color c, const Position *pos)
 {
 	const Piece piece = pos_make_piece(piece_type, c);
 	const u64 occ = pos_get_color_bitboard(pos, c)
@@ -583,7 +596,7 @@ static int get_number_of_pseudo_legal_moves(PieceType piece_type, Color c, const
 	int cnt = 0;
 	u64 bb = pos_get_piece_bitboard(pos, piece);
 	while (bb) {
-		const Square sq = get_index_of_first_bit_and_unset(&bb);
+		const Square sq = unset_ls1b(&bb);
 		u64 targets = 0;
 		switch (pos_get_piece_type(piece)) {
 		case PIECE_TYPE_PAWN:
@@ -612,7 +625,7 @@ static int get_number_of_pseudo_legal_moves(PieceType piece_type, Color c, const
 			~friendly_pieces;
 			break;
 		}
-		cnt += count_bits(targets);
+		cnt += popcnt(targets);
 	}
 
 	return cnt;
@@ -628,15 +641,15 @@ void movegen_init(void)
 }
 
 /*
- * This function returns 1 if the square sq is being attacked by any of the
+ * This function returns true if the square sq is being attacked by any of the
  * opponent's pieces. It works by generating attacks from the attacked square
  * and checking if one of the squares in this attack set has a piece, and since
  * all chess moves are reversible (not talking about the overall state of the
  * game like en passant, castling, promotions, etc. Just the piece movement
  * from one square to the other) a piece at one of these squares can attack sq.
  * Pawn moves are not reversible because pawns can't return, but the opponent's
- * pawn moves are the inverse of the pawn moves, therefore we can just use the
- * opposite side's attacks for pawns.
+ * pawn moves are the inverse of the pawn moves, so we can just use the opposite
+ * side's attacks for pawns.
  */
 bool movegen_is_square_attacked(Square sq, Color by_side, const Position *pos)
 {
@@ -669,16 +682,6 @@ bool movegen_is_square_attacked(Square sq, Color by_side, const Position *pos)
 	return false;
 }
 
-int movegen_get_number_of_pseudo_legal_moves(const Position *pos, Color c)
-{
-	return get_number_of_pseudo_legal_moves(PIECE_TYPE_PAWN, c, pos)
-	     + get_number_of_pseudo_legal_moves(PIECE_TYPE_KNIGHT, c, pos)
-	     + get_number_of_pseudo_legal_moves(PIECE_TYPE_ROOK, c, pos)
-	     + get_number_of_pseudo_legal_moves(PIECE_TYPE_BISHOP, c, pos)
-	     + get_number_of_pseudo_legal_moves(PIECE_TYPE_QUEEN, c, pos)
-	     + get_number_of_pseudo_legal_moves(PIECE_TYPE_KING, c, pos);
-}
-
 /*
  * Return a list containing all the pseudo legal moves possible for a position
  * (that is, moves that may put the king in check), or NULL if no moves are
@@ -693,12 +696,12 @@ Move *movegen_get_pseudo_legal_moves(const Position *restrict pos, size_t *restr
 	list.ptr = malloc(list.capacity * sizeof(Move));
 	list.len = 0;
 
-	add_pseudo_legal_moves(&list, PIECE_TYPE_PAWN, pos);
-	add_pseudo_legal_moves(&list, PIECE_TYPE_KNIGHT, pos);
-	add_pseudo_legal_moves(&list, PIECE_TYPE_ROOK, pos);
-	add_pseudo_legal_moves(&list, PIECE_TYPE_BISHOP, pos);
-	add_pseudo_legal_moves(&list, PIECE_TYPE_QUEEN, pos);
-	add_pseudo_legal_moves(&list, PIECE_TYPE_KING, pos);
+	add_moves(&list, PIECE_TYPE_PAWN, pos);
+	add_moves(&list, PIECE_TYPE_KNIGHT, pos);
+	add_moves(&list, PIECE_TYPE_ROOK, pos);
+	add_moves(&list, PIECE_TYPE_BISHOP, pos);
+	add_moves(&list, PIECE_TYPE_QUEEN, pos);
+	add_moves(&list, PIECE_TYPE_KING, pos);
 
 	*len = list.len;
 	if (!*len) {
@@ -713,7 +716,7 @@ Move *movegen_get_pseudo_legal_moves(const Position *restrict pos, size_t *restr
  * moving piece. The color of the piece is only used for pawns so for any other
  * piece the result will be the same for either white or black.
  */
-int movegen_get_number_of_possible_moves(Piece piece, Square sq) {
+int movegen_get_number_of_moves_empty_board(Piece piece, Square sq) {
 	const PieceType pt = pos_get_piece_type(piece);
 	const Color c = pos_get_piece_color(piece);
 	u64 targets = 0;
@@ -739,5 +742,84 @@ int movegen_get_number_of_possible_moves(Piece piece, Square sq) {
 	default:
 		abort();
 	}
-	return count_bits(targets);
+	return popcnt(targets);
 }
+
+/*
+ * Returns a bitboard of the pieces attacking a square. Note that this only
+ * counts pieces that are attacking a square directly, so a rook behind another
+ * rook will not be included.
+ */
+u64 movegen_get_attackers(Square sq, const Position *pos)
+{
+	const u64 occ = pos_get_color_bitboard(pos, COLOR_WHITE)
+	              | pos_get_color_bitboard(pos, COLOR_BLACK);
+	u64 (*const get_bb)(const Position *pos, Piece piece) = pos_get_piece_bitboard;
+
+	const u64 knights = get_bb(pos, PIECE_WHITE_KNIGHT)        | get_bb(pos, PIECE_BLACK_KNIGHT);
+	const u64 kings   = get_bb(pos, PIECE_WHITE_KING)          | get_bb(pos, PIECE_BLACK_KING);
+	const u64 bishops_queens = get_bb(pos, PIECE_WHITE_QUEEN)  | get_bb(pos, PIECE_BLACK_QUEEN)
+	                         | get_bb(pos, PIECE_WHITE_BISHOP) | get_bb(pos, PIECE_BLACK_BISHOP);
+	const u64 rooks_queens   = get_bb(pos, PIECE_WHITE_QUEEN)  | get_bb(pos, PIECE_BLACK_QUEEN)
+	                         | get_bb(pos, PIECE_WHITE_ROOK)   | get_bb(pos, PIECE_BLACK_ROOK);
+
+	return (get_pawn_attacks(sq, COLOR_WHITE) & get_bb(pos, PIECE_BLACK_PAWN))
+	     | (get_pawn_attacks(sq, COLOR_BLACK) & get_bb(pos, PIECE_WHITE_PAWN))
+	     | (get_knight_attacks(sq)            & knights)
+	     | (get_king_attacks(sq)              & kings)
+	     | (get_bishop_attacks(sq, occ)       & bishops_queens)
+	     | (get_rook_attacks(sq, occ)         & rooks_queens);
+}
+
+/*
+ * Returns a bitboard containing the squares attacked by a piece at square sq.
+ */
+u64 movegen_get_attacked_squares(Square sq, const Position *pos)
+{
+	const Piece piece = pos_get_piece_at(pos, sq);
+	const Color color = pos_get_piece_color(piece);
+	const PieceType pt = pos_get_piece_type(piece);
+	const u64 occ = pos_get_color_bitboard(pos, COLOR_WHITE)
+	              | pos_get_color_bitboard(pos, COLOR_BLACK);
+
+	switch (pt) {
+	case PIECE_TYPE_PAWN:
+		return get_pawn_attacks(sq, color);
+	case PIECE_TYPE_KNIGHT:
+		return get_knight_attacks(sq);
+	case PIECE_TYPE_BISHOP:
+		return get_bishop_attacks(sq, occ);
+	case PIECE_TYPE_ROOK:
+		return get_rook_attacks(sq, occ);
+	case PIECE_TYPE_QUEEN:
+		return get_queen_attacks(sq, occ);
+	case PIECE_TYPE_KING:
+		return get_king_attacks(sq);
+	default:
+		abort();
+	}
+}
+
+u64 movegen_perft(Position *pos, int depth)
+{
+	u64 nodes = 0;
+
+	if (!depth)
+		return 1;
+	size_t len;
+	Move *moves = movegen_get_pseudo_legal_moves(pos, &len);
+	for (size_t i = 0; i < len; ++i) {
+		Move move = moves[i];
+		if (!move_is_legal(pos, move))
+			continue;
+		move_do(pos, move);
+		nodes += movegen_perft(pos, depth - 1);
+		move_undo(pos, move);
+	}
+	free(moves);
+	return nodes;
+}
+
+#ifdef TEST
+#include "test_movegen.c"
+#endif

@@ -9,12 +9,12 @@ SRC_DIR := src
 BIN_NAME := athena
 BIN := $(BIN_DIR)/$(BIN_NAME)
 
-SRC := $(wildcard $(SRC_DIR)/*.c)
+SRC := $(filter-out $(wildcard $(SRC_DIR)/test_*.c), $(wildcard $(SRC_DIR)/*.c))
 OBJ := $(addprefix $(OBJ_DIR)/, $(addsuffix .o, $(notdir $(basename $(SRC)))))
 
 all: setup $(BIN)
 
-test: setup $(TST_BIN)
+test: setup $(TEST_BIN)
 
 $(BIN): $(OBJ)
 	$(CC) -o $@ $^ $(LDFLAGS)
