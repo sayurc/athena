@@ -144,7 +144,7 @@ void tt_init(void)
 {
 	init_hash();
 
-	transposition_table.capacity = 2 << 10;
+	transposition_table.capacity = 8191;
 	transposition_table.ptr = calloc(transposition_table.capacity, sizeof(NodeData));
 	if (!transposition_table.ptr) {
 		fprintf(stderr, "Could not allocate memory");

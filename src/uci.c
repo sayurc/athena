@@ -284,7 +284,12 @@ static void info(const struct search_info *info)
 		str = tmp;
 	}
 	if (info->flags & INFO_FLAG_NPS) {
-		asprintf(&tmp, "%snps %lld", str, info->nps);
+		asprintf(&tmp, "%snps %lld ", str, info->nps);
+		free(str);
+		str = tmp;
+	}
+	if (info->flags & INFO_FLAG_TIME) {
+		asprintf(&tmp, "%stime %lld", str, info->time);
 		free(str);
 		str = tmp;
 	}

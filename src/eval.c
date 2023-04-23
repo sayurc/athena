@@ -36,10 +36,144 @@ enum factor {
 	POSITIONING,
 };
 
-/*
- * [Color][PIECE_TYPE][Square]
- */
-static i8 sq_tables[2][6][64];
+struct score {
+	int mg;
+	int eg;
+};
+
+static const int mg_pawn_sq_table[64] = {
+	  0,   0,   0,   0,   0,   0,  0,   0,
+	 98, 134,  61,  95,  68, 126, 34, -11,
+	 -6,   7,  26,  31,  65,  56, 25, -20,
+	-14,  13,   6,  21,  23,  12, 17, -23,
+	-27,  -2,  -5,  12,  17,   6, 10, -25,
+	-26,  -4,  -4, -10,   3,   3, 33, -12,
+	-35,  -1, -20, -23, -15,  24, 38, -22,
+	  0,   0,   0,   0,   0,   0,  0,   0,
+};
+
+static const int eg_pawn_sq_table[64] = {
+	  0,   0,   0,   0,   0,   0,   0,   0,
+	178, 173, 158, 134, 147, 132, 165, 187,
+	 94, 100,  85,  67,  56,  53,  82,  84,
+	 32,  24,  13,   5,  -2,   4,  17,  17,
+	 13,   9,  -3,  -7,  -7,  -8,   3,  -1,
+	  4,   7,  -6,   1,   0,  -5,  -1,  -8,
+	 13,   8,   8,  10,  13,   0,   2,  -7,
+	  0,   0,   0,   0,   0,   0,   0,   0,
+};
+
+static const int mg_knight_sq_table[64] = {
+	-167, -89, -34, -49,  61, -97, -15, -107,
+	 -73, -41,  72,  36,  23,  62,   7,  -17,
+	 -47,  60,  37,  65,  84, 129,  73,   44,
+	  -9,  17,  19,  53,  37,  69,  18,   22,
+	 -13,   4,  16,  13,  28,  19,  21,   -8,
+	 -23,  -9,  12,  10,  19,  17,  25,  -16,
+	 -29, -53, -12,  -3,  -1,  18, -14,  -19,
+	-105, -21, -58, -33, -17, -28, -19,  -23,
+};
+
+static const int eg_knight_sq_table[64] = {
+	-58, -38, -13, -28, -31, -27, -63, -99,
+	-25,  -8, -25,  -2,  -9, -25, -24, -52,
+	-24, -20,  10,   9,  -1,  -9, -19, -41,
+	-17,   3,  22,  22,  22,  11,   8, -18,
+	-18,  -6,  16,  25,  16,  17,   4, -18,
+	-23,  -3,  -1,  15,  10,  -3, -20, -22,
+	-42, -20, -10,  -5,  -2, -20, -23, -44,
+	-29, -51, -23, -15, -22, -18, -50, -64,
+};
+
+static const int mg_bishop_sq_table[64] = {
+	-29,   4, -82, -37, -25, -42,   7,  -8,
+	-26,  16, -18, -13,  30,  59,  18, -47,
+	-16,  37,  43,  40,  35,  50,  37,  -2,
+	 -4,   5,  19,  50,  37,  37,   7,  -2,
+	 -6,  13,  13,  26,  34,  12,  10,   4,
+	  0,  15,  15,  15,  14,  27,  18,  10,
+	  4,  15,  16,   0,   7,  21,  33,   1,
+	-33,  -3, -14, -21, -13, -12, -39, -21,
+};
+
+static const int eg_bishop_sq_table[64] = {
+	-14, -21, -11,  -8, -7,  -9, -17, -24,
+	 -8,  -4,   7, -12, -3, -13,  -4, -14,
+	  2,  -8,   0,  -1, -2,   6,   0,   4,
+	 -3,   9,  12,   9, 14,  10,   3,   2,
+	 -6,   3,  13,  19,  7,  10,  -3,  -9,
+	-12,  -3,   8,  10, 13,   3,  -7, -15,
+	-14, -18,  -7,  -1,  4,  -9, -15, -27,
+	-23,  -9, -23,  -5, -9, -16,  -5, -17,
+};
+
+static const int mg_rook_sq_table[64] = {
+	 32,  42,  32,  51, 63,  9,  31,  43,
+	 27,  32,  58,  62, 80, 67,  26,  44,
+	 -5,  19,  26,  36, 17, 45,  61,  16,
+	-24, -11,   7,  26, 24, 35,  -8, -20,
+	-36, -26, -12,  -1,  9, -7,   6, -23,
+	-45, -25, -16, -17,  3,  0,  -5, -33,
+	-44, -16, -20,  -9, -1, 11,  -6, -71,
+	-19, -13,   1,  17, 16,  7, -37, -26,
+};
+
+static const int eg_rook_sq_table[64] = {
+	13, 10, 18, 15, 12,  12,   8,   5,
+	11, 13, 13, 11, -3,   3,   8,   3,
+	 7,  7,  7,  5,  4,  -3,  -5,  -3,
+	 4,  3, 13,  1,  2,   1,  -1,   2,
+	 3,  5,  8,  4, -5,  -6,  -8, -11,
+	-4,  0, -5, -1, -7, -12,  -8, -16,
+	-6, -6,  0,  2, -9,  -9, -11,  -3,
+	-9,  2,  3, -1, -5, -13,   4, -20,
+};
+
+static const int mg_queen_sq_table[64] = {
+	-28,   0,  29,  12,  59,  44,  43,  45,
+	-24, -39,  -5,   1, -16,  57,  28,  54,
+	-13, -17,   7,   8,  29,  56,  47,  57,
+	-27, -27, -16, -16,  -1,  17,  -2,   1,
+	 -9, -26,  -9, -10,  -2,  -4,   3,  -3,
+	-14,   2, -11,  -2,  -5,   2,  14,   5,
+	-35,  -8,  11,   2,   8,  15,  -3,   1,
+	 -1, -18,  -9,  10, -15, -25, -31, -50,
+};
+
+static const int eg_queen_sq_table[64] = {
+	 -9,  22,  22,  27,  27,  19,  10,  20,
+	-17,  20,  32,  41,  58,  25,  30,   0,
+	-20,   6,   9,  49,  47,  35,  19,   9,
+	  3,  22,  24,  45,  57,  40,  57,  36,
+	-18,  28,  19,  47,  31,  34,  39,  23,
+	-16, -27,  15,   6,   9,  17,  10,   5,
+	-22, -23, -30, -16, -16, -23, -36, -32,
+	-33, -28, -22, -43,  -5, -32, -20, -41,
+};
+
+static const int mg_king_sq_table[64] = {
+	-65,  23,  16, -15, -56, -34,   2,  13,
+	 29,  -1, -20,  -7,  -8,  -4, -38, -29,
+	 -9,  24,   2, -16, -20,   6,  22, -22,
+	-17, -20, -12, -27, -30, -25, -14, -36,
+	-49,  -1, -27, -39, -46, -44, -33, -51,
+	-14, -14, -22, -46, -44, -30, -15, -27,
+	  1,   7,  -8, -64, -43, -16,   9,   8,
+	-15,  36,  12, -54,   8, -28,  24,  14,
+};
+
+static const int eg_king_sq_table[64] = {
+	-74, -35, -18, -18, -11,  15,   4, -17,
+	-12,  17,  14,  17,  17,  38,  23,  11,
+	 10,  17,  23,  15,  20,  45,  44,  13,
+	 -8,  22,  24,  27,  26,  33,  26,   3,
+	-18,  -4,  21,  24,  27,  23,   9, -11,
+	-19,  -3,  11,  21,  23,  16,   7,  -9,
+	-27, -11,   4,  13,  14,   4,  -5, -17,
+	-53, -34, -21, -11, -28, -14, -24, -43
+};
+
+static struct score sq_tables[2][6][64];
 
 /*
  * These tables store the number of possible moves for a piece when the board
@@ -91,86 +225,33 @@ static void flip_table(i8 *restrict dst, const i8 *restrict src)
 	}
 }
 
-/*
- * The square tables for black pieces has the same values as the ones for white
- * pieces but the board is flipped, so this function uses the square tables of
- * white pieces to initialize the square tables of black pieces.
- * The square tables are indexed by the square number so even though the code
- * looks like a chess board the top row is actually the rank 1.
- */
-static void init_square_tables(void)
+static void init_sq_tables(void)
 {
-	const i8 white_pawn[64] = {
-		 0,  0,   0,   0,   0,   0,  0,  0,
-		 5, 10,  10, -20, -20,  10, 10,  5,
-		 5, -5, -10,   0,   0, -10, -5,  5,
-		 0,  0,   0,  20,  20,   0,  0,  0,
-		 5,  5,  10,  25,  25,  10,  5,  5,
-		10, 10,  20,  30,  30,  20, 10, 10,
-		50, 50,  50,  50,  50,  50, 50, 50,
-		 0,  0,   0,   0,   0,   0,  0,  0,
+	const int *const mg_tables[6] = {
+		[PIECE_TYPE_PAWN  ] = mg_pawn_sq_table,
+		[PIECE_TYPE_KNIGHT] = mg_knight_sq_table,
+		[PIECE_TYPE_BISHOP] = mg_bishop_sq_table,
+		[PIECE_TYPE_ROOK  ] = mg_rook_sq_table,
+		[PIECE_TYPE_QUEEN ] = mg_queen_sq_table,
+		[PIECE_TYPE_KING  ] = mg_king_sq_table,
 	};
-	const i8 white_knight[64] = {
-		-50, -40, -30, -30, -30, -30, -40, -50,
-		-40, -20,   0,   5,   5,   0, -20, -40,
-		-30,   5,  10,  15,  15,  10,   5, -30,
-		-30,   0,  15,  20,  20,  15,   0, -30,
-		-30,   5,  15,  20,  20,  15,   5, -30,
-		-30,   0,  10,  15,  15,  10,   0, -30,
-		-40, -20,   0,   0,   0,   0, -20, -40,
-		-50, -40, -30, -30, -30, -30, -40, -50,
-	};
-	const i8 white_bishop[64] = {
-		-20, -10, -10, -10, -10, -10, -10, -20,
-		-10,   5,   0,   0,   0,   0,   5, -10,
-		-10,  10,  10,  10,  10,  10,  10, -10,
-		-10,   0,  10,  10,  10,  10,   0, -10,
-		-10,   5,   5,  10,  10,   5,   5, -10,
-		-10,   0,   5,  10,  10,   5,   0, -10,
-		-10,   0,   0,   0,   0,   0,   0, -10,
-		-20, -10, -10, -10, -10, -10, -10, -20,
-	};
-	const i8 white_rook[64] = {
-		 0,  0,  0,  5,  5,  0,  0,  0,
-		-5,  0,  0,  0,  0,  0,  0, -5,
-		-5,  0,  0,  0,  0,  0,  0, -5,
-		-5,  0,  0,  0,  0,  0,  0, -5,
-		-5,  0,  0,  0,  0,  0,  0, -5,
-		-5,  0,  0,  0,  0,  0,  0, -5,
-		 5, 10, 10, 10, 10, 10, 10,  5,
-		 0,  0,  0,  0,  0,  0,  0,  0,
-	};
-	const i8 white_queen[64] = {
-		-20, -10, -10, -5, -5, -10, -10, -20,
-		-10,   0,   5,  0,  0,   0,   0, -10,
-		-10,   5,   5,  5,  5,   5,   0, -10,
-		  0,   0,   5,  5,  5,   5,   0,  -5,
-		 -5,   0,   5,  5,  5,   5,   0,  -5,
-		-10,   0,   5,  5,  5,   5,   0, -10,
-		-10,   0,   0,  0,  0,   0,   0, -10,
-		-20, -10, -10, -5, -5, -10, -10, -20,
-	};
-	const i8 white_king[64] = {
-		 20,  30,  10,   0,   0,  10,  30,  20,
-		 20,  20,   0,   0,   0,   0,  20,  20,
-		-10, -20, -20, -20, -20, -20, -20, -10,
-		-20, -30, -30, -40, -40, -30, -30, -20,
-		-30, -40, -40, -50, -50, -40, -40, -30,
-		-30, -40, -40, -50, -50, -40, -40, -30,
-		-30, -40, -40, -50, -50, -40, -40, -30,
-		-30, -40, -40, -50, -50, -40, -40, -30,
+	const int *const eg_tables[6] = {
+		[PIECE_TYPE_PAWN  ] = eg_pawn_sq_table,
+		[PIECE_TYPE_KNIGHT] = eg_knight_sq_table,
+		[PIECE_TYPE_BISHOP] = eg_bishop_sq_table,
+		[PIECE_TYPE_ROOK  ] = eg_rook_sq_table,
+		[PIECE_TYPE_QUEEN ] = eg_queen_sq_table,
+		[PIECE_TYPE_KING  ] = eg_king_sq_table,
 	};
 
-	size_t size = sizeof(white_pawn) / sizeof(white_pawn[0]);
-	memcpy(sq_tables[COLOR_WHITE][PIECE_TYPE_PAWN], white_pawn, size);
-	memcpy(sq_tables[COLOR_WHITE][PIECE_TYPE_KNIGHT], white_knight, size);
-	memcpy(sq_tables[COLOR_WHITE][PIECE_TYPE_BISHOP], white_bishop, size);
-	memcpy(sq_tables[COLOR_WHITE][PIECE_TYPE_ROOK], white_rook, size);
-	memcpy(sq_tables[COLOR_WHITE][PIECE_TYPE_QUEEN], white_queen, size);
-	memcpy(sq_tables[COLOR_WHITE][PIECE_TYPE_KING], white_king, size);
-
-	for (PieceType pt = PIECE_TYPE_PAWN; pt <= PIECE_TYPE_KING; ++pt)
-		flip_table(sq_tables[COLOR_BLACK][pt], sq_tables[COLOR_WHITE][pt]);
+	for (PieceType pt = PIECE_TYPE_PAWN; pt <= PIECE_TYPE_KING; ++pt) {
+		for (Square sq = A1; sq <= H8; ++sq) {
+			sq_tables[COLOR_WHITE][pt][sq ^ 56].mg = mg_tables[pt][sq];
+			sq_tables[COLOR_WHITE][pt][sq ^ 56].eg = eg_tables[pt][sq];
+			sq_tables[COLOR_BLACK][pt][sq].mg = mg_tables[pt][sq];
+			sq_tables[COLOR_BLACK][pt][sq].eg = eg_tables[pt][sq];
+		}
+	}
 }
 
 /*
@@ -264,8 +345,8 @@ static int estimate_positioning_gain(Move move, Position *pos)
 		         (RANK_7 - pos_get_rank_of_square(target));
 	}
 
-	score += sq_tables[piece_color][piece_type][target];
-	score -= sq_tables[piece_color][piece_type][origin];
+	score += sq_tables[piece_color][piece_type][target].mg;
+	score -= sq_tables[piece_color][piece_type][origin].mg;
 
 	return score;
 }
@@ -281,14 +362,14 @@ static int compute_positioning(const Position *pos)
 		u64 bb = pos_get_piece_bitboard(pos, piece);
 		while (bb) {
 			const Square sq = unset_ls1b(&bb);
-			score += sq_tables[color][piece_type][sq];
+			score += sq_tables[color][piece_type][sq].mg;
 		}
 
 		piece = pos_make_piece(piece_type, !color);
 		bb = pos_get_piece_bitboard(pos, piece);
 		while (bb) {
 			const Square sq = unset_ls1b(&bb);
-			score -= sq_tables[!color][piece_type][sq];
+			score -= sq_tables[!color][piece_type][sq].mg;
 		}
 	}
 
@@ -384,7 +465,7 @@ static int compute_mvv_lva(Move move, const Position *pos)
 
 	return get_captured_piece_value(attacked) +
 	       get_attacker_value(attacker) +
-	       sq_tables[attacker_color][attacker_type][target];
+	       sq_tables[attacker_color][attacker_type][target].mg;
 }
 
 /*
@@ -477,144 +558,65 @@ static int compute_material(const Position *pos)
 	return material;
 }
 
-static int score_king(const Position *pos, Color color)
-{
-	const Square sq = pos_get_king_square(pos, color);
-
-	return sq_tables[color][PIECE_TYPE_KING][sq];
-}
-
 /*
- * Computes the score of the attacks on the square sq.
+ * This function returns a number between 0 and 256 representing the game phase
+ * where 0 is the initial phase and 256 is the final phase. This approach of
+ * representing the game with several phases prevents evaluation discontinuity.
  */
-static int score_attacks(const Position *pos, u64 attackers, Square sq)
+int eval_get_phase(const Position *pos)
 {
-	const Piece piece = pos_get_piece_at(pos, sq);
-
-	int score = 0;
-	while (attackers) {
-		const Square attacker_sq = unset_ls1b(&attackers);
-		const Piece attacker = pos_get_piece_at(pos, attacker_sq);
-		const Color attacker_color = pos_get_piece_color(piece);
-		const PieceType attacker_type = pos_get_piece_type(attacker);
-		if (piece == PIECE_NONE) {
-			score += sq_tables[attacker_color][attacker_type][sq] - sq_tables[attacker_color][attacker_type][attacker_sq];
-		} if (attacker_type == PIECE_TYPE_KING) {
-			score += get_captured_piece_value(piece) + score_king(pos, attacker_color);
-		} else {
-			const Color color = pos_get_piece_color(piece);
-			const PieceType pt = pos_get_piece_type(piece);
-
-			//score += get_captured_piece_value(piece) + get_attacker_value(attacker);
-			score += sq_tables[color][pt][sq];
-			score += sq_tables[attacker_color][attacker_type][sq];
-			score -= sq_tables[attacker_color][attacker_type][attacker_sq];
-		}
-	}
-
-	return score;
-}
-
-/*
- * Computes the score of the squares controlled by the piece at square sq. We
- * don't handle the case of a king at an attacked square because that means the
- * king is in check and this is handled elsewhere. 
- */
-static int score_controlled_squares(const Position *pos, u64 controlled, Square sq)
-{
-	const int center_bonus[] = {
-		[A8] = 0, [B8] = 0, [C8] = 0,   [D8] = 0,   [E8] = 0,   [F8] = 0,   [G8] = 0, [H8] = 0,
-		[A7] = 0, [B7] = 0, [C7] = 0,   [D7] = 0,   [E7] = 0,   [F7] = 0,   [G7] = 0, [H7] = 0,
-		[A6] = 0, [B6] = 0, [C6] = 50,  [D6] = 50,  [E6] = 50,  [F6] = 50,  [G6] = 0, [H6] = 0,
-		[A5] = 0, [B5] = 0, [C5] = 50,  [D5] = 150, [E5] = 150, [F5] = 50,  [G5] = 0, [H5] = 0,
-		[A4] = 0, [B4] = 0, [C4] = 50,  [D4] = 150, [E4] = 150, [F4] = 50,  [G4] = 0, [H4] = 0,
-		[A3] = 0, [B3] = 0, [C3] = 50,  [D3] = 50,  [E3] = 50,  [F3] = 50,  [G3] = 0, [H3] = 0,
-		[A2] = 0, [B2] = 0, [C2] = 0,   [D2] = 0,   [E2] = 0,   [F2] = 0,   [G2] = 0, [H2] = 0,
-		[A1] = 0, [B1] = 0, [C1] = 0,   [D1] = 0,   [E1] = 0,   [F1] = 0,   [G1] = 0, [H1] = 0,
+	const int weights[] = {
+		[PIECE_TYPE_PAWN] = 0, [PIECE_TYPE_KNIGHT] = 1,
+		[PIECE_TYPE_BISHOP] = 1, [PIECE_TYPE_ROOK] = 2,
+		[PIECE_TYPE_QUEEN] = 4
 	};
-	const Piece piece = pos_get_piece_at(pos, sq);
-	const PieceType pt = pos_get_piece_type(piece);
-	const Color color = pos_get_piece_color(piece);
+	const int neutral = 16 * weights[PIECE_TYPE_PAWN  ] +
+	              4  * weights[PIECE_TYPE_KNIGHT] +
+	              4  * weights[PIECE_TYPE_BISHOP] +
+	              4  * weights[PIECE_TYPE_ROOK  ] +
+	              2  * weights[PIECE_TYPE_QUEEN ];
 
-	int score = 0;
-	while (controlled) {
-		const Square attacked_sq = unset_ls1b(&controlled);
-		const Piece attacked = pos_get_piece_at(pos, attacked_sq);
-		if (attacked != PIECE_NONE) {
-			const Color attacked_color = pos_get_piece_color(attacked);
-			const PieceType attacked_type = pos_get_piece_type(attacked);
-			//score += get_captured_piece_value(attacked) + get_attacker_value(piece);
-			score += sq_tables[attacked_color][attacked_type][attacked_sq];
+	int phase = neutral;
+
+	for (Color c = COLOR_WHITE; c <= COLOR_BLACK; ++c) {
+		for (PieceType pt = PIECE_TYPE_PAWN; pt <= PIECE_TYPE_QUEEN; ++pt) {
+			Piece piece = pos_make_piece(pt, c);
+			int num = pos_get_number_of_pieces(pos, piece);
+			phase -= num * weights[pt];
 		}
-		score += sq_tables[color][pt][attacked_sq];
-		score -= sq_tables[color][pt][sq];
-
-		score += center_bonus[attacked_sq];
 	}
+	phase = (256 * phase + (neutral / 2)) / neutral;
 
-	return score;
-}
-
-/*
- * Score all pieces of a color on the board based on their positioning,
- * controlled squares, etc. Although the king is not evaluated directly in this
- * function, its safety is taken into account when the king is defending the
- * piece being evaluated.
- */
-static int score_pieces(const Position *pos, Color color)
-{
-	int score = 0;
-
-	u64 bb = pos_get_color_bitboard(pos, color);
-
-	bool found_light_bishop = false, found_dark_bishop = false;
-	while (bb) {
-		const Square sq = unset_ls1b(&bb);
-		const Piece piece = pos_get_piece_at(pos, sq);
-		const PieceType pt = pos_get_piece_type(piece);
-		if (pt == PIECE_TYPE_KING)
-			continue;
-
-		if (pt == PIECE_TYPE_BISHOP) {
-			SquareColor sc = pos_get_square_color(sq);
-			if (sc == SQUARE_COLOR_LIGHT)
-				found_light_bishop = true;
-			if (sc == SQUARE_COLOR_DARK)
-				found_dark_bishop = true;
-
-			/* Bonus for the bishop pair. */
-			if (found_light_bishop && found_dark_bishop == true) {
-				score += point_value[PIECE_TYPE_ROOK] / 2;
-				/* Reset these for the next bishop pair. */
-				found_light_bishop = false;
-				found_dark_bishop = false;
-			}
-		}
-
-		score += sq_tables[color][pt][sq];
-
-		const u64 attackers = movegen_get_attackers(sq, pos);
-		const u64 friend_attackers = attackers & pos_get_color_bitboard(pos, color);
-		const u64 enemy_attackers = attackers & pos_get_color_bitboard(pos, !color);
-		score += score_attacks(pos, friend_attackers, sq);
-		score -= score_attacks(pos, enemy_attackers, sq);
-
-		const u64 controlled = movegen_get_attacked_squares(sq, pos);
-		score += score_controlled_squares(pos, controlled, sq);
-	}
-
-	return score;
+	return phase;
 }
 
 int eval_evaluate(const Position *pos)
 {
-	Color color = pos_get_side_to_move(pos);
+	const Color color = pos_get_side_to_move(pos);
+	const int phase = eval_get_phase(pos);
 
-	int score = score_pieces(pos, color);
-	score -= score_pieces(pos, !color);
-	score += 3 * compute_material(pos) / 2;
+	struct score score = {0, 0};
+	for (Square sq = A1; sq <= H8; ++sq) {
+		const Piece piece = pos_get_piece_at(pos, sq);
+		if (piece == PIECE_NONE)
+			continue;
+		const PieceType pt = pos_get_piece_type(piece);
+		if (pt == PIECE_TYPE_KING)
+			continue;
 
-	return score;
+		if (pos_get_piece_color(piece) == color) {
+			score.mg += sq_tables[color][pt][sq].mg;
+			score.eg += sq_tables[color][pt][sq].eg;
+		} else {
+			score.mg -= sq_tables[!color][pt][sq].mg;
+			score.eg -= sq_tables[!color][pt][sq].eg;
+		}
+	}
+
+	score.mg += compute_material(pos);
+	score.eg += compute_material(pos);
+
+	return ((score.mg * (256 - phase)) + (score.eg * phase)) / 256;
 }
 
 int eval_evaluate_move(Move move, Position *pos)
@@ -672,5 +674,5 @@ int eval_evaluate_qmove(Move move, Position *pos)
 void eval_init(void)
 {
 	init_possible_moves_table();
-	init_square_tables();
+	init_sq_tables();
 }

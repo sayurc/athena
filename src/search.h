@@ -24,6 +24,7 @@ enum info_flag {
 	INFO_FLAG_NODES = 0x1 << 1,
 	INFO_FLAG_NPS = 0x1 << 2,
 	INFO_FLAG_MATE = 0x1 << 3,
+	INFO_FLAG_TIME = 0x1 << 4,
 };
 
 struct search_info {
@@ -32,6 +33,7 @@ struct search_info {
 	long long nodes;
 	long long nps;
 	long long mate;
+	long long time;
 };
 
 struct thread_data;

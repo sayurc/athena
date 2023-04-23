@@ -36,6 +36,7 @@
 #include "eval.h"
 #include "rng.h"
 #include "search.h"
+#include "clock.h"
 
 struct thread_data {
 	struct search_settings settings;
@@ -145,7 +146,7 @@ Position *restrict pos, int depth)
 /*
  * Returns the index of what seems to be the most promising for the quiescence
  * search. Non capture moves will be ignored. If there are no more capturing
- * moves then *ended is set to true and anything may be returned.
+ * moves then *ended is set to true.
  */
 static size_t get_next_qmove(const Move *restrict moves, size_t len,
 Position *restrict pos, int depth, bool *ended)
@@ -184,6 +185,15 @@ static bool is_in_check(const Position *pos)
 	return movegen_is_square_attacked(king_sq, !c, pos);
 }
 
+static bool has_legal_moves(Move *moves, size_t len, Position *pos)
+{
+	for (size_t i = 0; i < len; ++i) {
+		if (move_is_legal(pos, moves[i]))
+			return true;
+	}
+	return false;
+}
+
 /*
  * The quiescence search is performed at the leaf nodes of the main search. It
  * searches for the best quiet position after a sequence of captures, so only
@@ -216,16 +226,20 @@ struct search_info *info, bool *stop, pthread_mutex_t *mtx)
 
 	NodeType type = NODE_TYPE_ALL;
 	Move best_move;
-	size_t legal_moves_cnt = 0, len = 0;
-	Move *moves = movegen_get_pseudo_legal_moves(tdata->settings.position, &len);
-	Move *const moves_ptr = moves;
-	while (len && tdata->total_nodes < tdata->settings.nodes) {
+	bool has_legal = false;
+	size_t len = 0;
+	Move *const moves_ptr = movegen_get_pseudo_legal_moves(tdata->settings.position, &len);
+	for (Move *moves = moves_ptr; len && tdata->total_nodes < tdata->settings.nodes; --len, ++moves) {
 		if (len > 1) {
 			Move first = moves[0];
 			bool ended = false;
 			size_t i = get_next_qmove(moves, len, tdata->settings.position, depth, &ended);
-			if (ended)
+			if (ended && !has_legal) {
+				has_legal = has_legal_moves(moves, len, tdata->settings.position);
 				break;
+			} else if (ended) {
+				break;
+			}
 			Move most_promising = moves[i];
 			moves[0] = most_promising;
 			moves[i] = first;
@@ -233,12 +247,9 @@ struct search_info *info, bool *stop, pthread_mutex_t *mtx)
 
 		Move move = *moves;
 		if (move_is_legal(tdata->settings.position, move))
-			++legal_moves_cnt;
-		if (!move_is_legal(tdata->settings.position, move) || !move_is_capture(move)) {
-			--len;
-			++moves;
+			has_legal = true;
+		if (!move_is_legal(tdata->settings.position, move) || !move_is_capture(move))
 			continue;
-		}
 
 		move_do(tdata->settings.position, move);
 		++tdata->ply;
@@ -259,13 +270,10 @@ struct search_info *info, bool *stop, pthread_mutex_t *mtx)
 			type = NODE_TYPE_CUT;
 			break;
 		}
-
-		--len;
-		++moves;
 	}
 	free(moves_ptr);
 
-	if (!legal_moves_cnt) {
+	if (!has_legal) {
 		if (is_in_check(tdata->settings.position)) {
 			info->mate = (tdata->ply + 1) / 2;
 			return -INFINITE;
@@ -309,13 +317,13 @@ struct search_info *info, bool *stop, pthread_mutex_t *mtx)
 	bool in_check = is_in_check(tdata->settings.position);
 
 	Move best_move;
-	size_t legal_moves_cnt = 0, len = 0;
-	Move *moves = movegen_get_pseudo_legal_moves(tdata->settings.position, &len);
-	Move *const moves_ptr = moves;
+	bool has_legal = 0;
+	size_t len = 0;
+	Move *const moves_ptr = movegen_get_pseudo_legal_moves(tdata->settings.position, &len);
 
 	int eval = eval_evaluate(tdata->settings.position);
 
-	while (len && tdata->total_nodes < tdata->settings.nodes) {
+	for (Move *moves = moves_ptr; len && tdata->total_nodes < tdata->settings.nodes; --len, ++moves) {
 		/* Lazily sort moves instead of doing it all at once, this way
 		 * we avoid wasting time sorting moves of branches that are
 		 * pruned. */
@@ -327,12 +335,9 @@ struct search_info *info, bool *stop, pthread_mutex_t *mtx)
 			moves[i] = first;
 		}
 		Move move = *moves;
-		if (!move_is_legal(tdata->settings.position, move)) {
-			--len;
-			++moves;
+		if (!move_is_legal(tdata->settings.position, move))
 			continue;
-		}
-		++legal_moves_cnt;
+		has_legal = true;
 
 		/* Futility pruning. If the position score plus some safety
 		 * margin is not enough to raise alpha, then skip all the next
@@ -365,13 +370,10 @@ struct search_info *info, bool *stop, pthread_mutex_t *mtx)
 			type = NODE_TYPE_CUT;
 			break;
 		}
-
-		--len;
-		++moves;
 	}
 	free(moves_ptr);
 
-	if (!legal_moves_cnt) {
+	if (!has_legal) {
 		if (is_in_check(tdata->settings.position)) {
 			info->mate = (tdata->ply + 1) / 2;
 			return -INFINITE;
@@ -407,14 +409,14 @@ void search_finish(void)
 }
 
 /*
- * Returns the elapsed time between two timestamps with nanosecond precision.
+ * Returns the elapsed time between two timestamps in milliseconds.
  */
 static double get_elapsed_time(const struct timespec *restrict ts1,
 const struct timespec *restrict ts2)
 {
-	const double t1 = ts1->tv_sec + ts1->tv_nsec / 10e9;
-	const double t2 = ts2->tv_sec + ts2->tv_nsec / 10e9;
-	return t2 - t1;
+	const double t1 = ts1->tv_sec * 1e3 + ts1->tv_nsec / 10e6;
+	const double t2 = ts2->tv_sec * 1e3 + ts2->tv_nsec / 10e6;
+	return ceil(t2 - t1);
 }
 
 /*
@@ -480,6 +482,7 @@ bool *stop, pthread_mutex_t *mtx)
 		tt_prefetch();
 		int score = -negamax(depth - 1, -beta, -alpha, tdata, &info, stop, mtx);
 		move_undo(tdata->settings.position, move);
+
 		--tdata->ply;
 
 		++tdata->total_nodes;
@@ -500,9 +503,10 @@ bool *stop, pthread_mutex_t *mtx)
 
 	timespec_get(&ts2, TIME_UTC);
 	double dt = get_elapsed_time(&ts1, &ts2);
-	const double nps = (double)(info.nodes - old_nodes) / dt;
+	const double nps = (double)(info.nodes - old_nodes) * 1000 / dt;
 	info.nps = (long long)round(nps);
-	info.flags = INFO_FLAG_DEPTH | INFO_FLAG_NODES | INFO_FLAG_NPS;
+	info.time = (long long)round(dt);
+	info.flags = INFO_FLAG_DEPTH | INFO_FLAG_NODES | INFO_FLAG_NPS | INFO_FLAG_TIME;
 	if (alpha == INFINITE)
 		info.flags |= INFO_FLAG_MATE;
 	tdata->settings.info_sender(&info);
@@ -537,6 +541,24 @@ static void perft(struct thread_data *tdata)
 
 	info.flags = INFO_FLAG_NODES | INFO_FLAG_NPS;
 	tdata->settings.info_sender(&info);
+}
+
+u64 sum_array(u64 array[], size_t len)
+{
+	u64 ret = 0;
+
+	for (size_t i = 0; i < len; ++i)
+		ret += array[i];
+	return ret;
+}
+
+int sum(int end)
+{
+	int ret = 0;
+
+	for (int i = 1; i <= end; ++i)
+		ret += i;
+	return ret;
 }
 
 /*
