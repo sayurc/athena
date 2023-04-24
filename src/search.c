@@ -627,9 +627,7 @@ void *search_run(void *data)
 		if (arg->settings.mate && result.found_mate)
 			break;
 	}
-	pthread_mutex_lock(mtx);
 	arg->settings.best_move_sender(best_move);
-	pthread_mutex_unlock(mtx);
 
 	pos_destroy(arg->settings.position);
 	free(arg);
