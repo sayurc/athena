@@ -224,6 +224,8 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 struct info *info, const struct parameters *params)
 {
 	pthread_mutex_lock(params->stop_mtx);
+	if (data->nodes >= params->nodes)
+		*params->stop = true;
 	if (*params->stop || data->nodes >= params->nodes) {
 		pthread_mutex_unlock(params->stop_mtx);
 		return alpha;
@@ -316,6 +318,8 @@ static int negamax(int depth, int alpha, int beta, struct search_data *data,
 struct info *info, const struct parameters *params)
 {
 	pthread_mutex_lock(params->stop_mtx);
+	if (data->nodes >= params->nodes)
+		*params->stop = true;
 	if (*params->stop || data->nodes >= params->nodes) {
 		pthread_mutex_unlock(params->stop_mtx);
 		return alpha;
@@ -483,8 +487,10 @@ static struct result search(const struct parameters *params)
 	long long old_nodes = info.nodes;
 
 	timespec_get(&ts1, TIME_UTC);
-	for (size_t i = 0; i < len && data.nodes < params->nodes; ++i) {
+	for (size_t i = 0; i < len; ++i) {
 		pthread_mutex_lock(params->stop_mtx);
+		if (data.nodes >= params->nodes)
+			*params->stop = true;
 		if (*params->stop) {
 			pthread_mutex_unlock(params->stop_mtx);
 			break;
@@ -611,7 +617,7 @@ void *search_run(void *data)
 		nodes -= result.nodes;
 
 		pthread_mutex_lock(mtx);
-		if (*stop || !nodes) {
+		if (*stop) {
 			pthread_mutex_unlock(mtx);
 			break;
 		}
