@@ -42,13 +42,6 @@
 
 #define MAX_PLY 256
 
-struct thread_data {
-	struct search_settings settings;
-	long long total_nodes;
-	long ply;
-	bool found_mate;
-};
-
 struct search_data {
 	int ply;
 	long long nodes;
