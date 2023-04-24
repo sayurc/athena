@@ -663,7 +663,7 @@ int eval_evaluate_qmove(Move move, Position *pos)
 			score += point_value[PIECE_TYPE_QUEEN];
 	} else {
 		move_do(pos, move);
-		const Piece cap_piece = pos_get_captured_piece(pos);
+		cap_piece = pos_get_captured_piece(pos);
 		score += get_captured_piece_value(cap_piece) - evaluate_exchange(target, pos);
 		move_undo(pos, move);
 	}

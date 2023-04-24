@@ -64,12 +64,12 @@ union option_value {
 };
 
 struct option {
-	char *name;
-	enum option_type type;
-	union option_value default_value;
+	const char *name;
+	const enum option_type type;
+	const union option_value default_value;
 	union option_value value;
-	int min;
-	int max;
+	const int min;
+	const int max;
 } options[] = {
 	{.name = "UCI_AnalyseMode", .type = OPTION_TYPE_BOOLEAN, .default_value.boolean = false, .value.boolean = false},
 	{.name = "Hash", .type = OPTION_TYPE_INTEGER, .default_value.integer = 64, .value.integer = 64, .min = 64, .max = 32768},
@@ -252,7 +252,7 @@ static void id(void)
 	uci_send("id author Aiya");
 }
 
-static void info(const struct search_info *info)
+static void info(const struct info *info)
 {
 	char *str = malloc(1), *tmp;
 	bool score_added = false;
@@ -420,7 +420,7 @@ static void position(char *split_str)
 {
 	if (!newgame_has_been_run)
 		ucinewgame();
-	char *startpos = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+	const char *startpos = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 	const char *token = strtok(NULL, " ");
 	if (token && !strcmp(token, "startpos")) {
@@ -433,10 +433,6 @@ static void position(char *split_str)
 		char *parts[num_fen_parts];
 		for (size_t i = 0; i < num_fen_parts; ++i) {
 			parts[i] = strtok(NULL, " ");
-			if (i == 0 && !strcmp(parts[i], "startpos")) {
-				fen = startpos;
-				break;
-			}
 			if (!parts[i])
 				fprintf(stderr, "Invalid UCI command.\n");
 		}
@@ -538,7 +534,7 @@ static void isready(void)
  * If str is an empty string then the function will read until the end and the
  * extra argument is ignored.
  */
-static char *read_words_until_equal(char *str, bool *allocation_error, ...)
+static char *read_words_until_equal(const char *str, bool *allocation_error, ...)
 {
 	va_list ap;
 	bool requires_extra = !!strlen(str);

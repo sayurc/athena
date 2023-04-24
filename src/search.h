@@ -27,7 +27,7 @@ enum info_flag {
 	INFO_FLAG_TIME = 0x1 << 4,
 };
 
-struct search_info {
+struct info {
 	enum info_flag flags;
 	int depth;
 	long long nodes;
@@ -49,7 +49,7 @@ struct search_settings {
 	long long time[2];
 	long long inc[2];
 	void (*best_move_sender)(Move);
-	void (*info_sender)(const struct search_info *);
+	void (*info_sender)(const struct info *);
 };
 
 struct search_argument {
