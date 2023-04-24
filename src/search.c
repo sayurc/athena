@@ -46,8 +46,8 @@ struct search_data {
 	int ply;
 	long long nodes;
 	Position *pos;
-	Move killers[MAX_PLY][MAX_KILLER_MOVES];
-	Move current_move[MAX_PLY];
+	Move killers[MAX_PLY + 1][MAX_KILLER_MOVES];
+	Move current_move[MAX_PLY + 1];
 };
 
 struct result {
@@ -224,7 +224,7 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 struct info *info, const struct parameters *params)
 {
 	pthread_mutex_lock(params->stop_mtx);
-	if (data->nodes >= params->nodes)
+	if (data->nodes >= params->nodes || data->ply > MAX_PLY)
 		*params->stop = true;
 	if (*params->stop || data->nodes >= params->nodes) {
 		pthread_mutex_unlock(params->stop_mtx);
@@ -318,7 +318,7 @@ static int negamax(int depth, int alpha, int beta, struct search_data *data,
 struct info *info, const struct parameters *params)
 {
 	pthread_mutex_lock(params->stop_mtx);
-	if (data->nodes >= params->nodes)
+	if (data->nodes >= params->nodes || data->ply > MAX_PLY)
 		*params->stop = true;
 	if (*params->stop || data->nodes >= params->nodes) {
 		pthread_mutex_unlock(params->stop_mtx);
