@@ -4,7 +4,7 @@ warnings = -Wall -Wextra -Wshadow -Wpedantic -Wpointer-arith -Wcast-align \
 
 CC = clang
 LD = clang
-CFLAGS = -std=c17 $(warnings) -g -march=native -Wstrict-prototypes -O2 -pipe -flto
+CFLAGS = -std=c17 $(warnings) -g -march=native -O2 -pipe -flto
 LDFLAGS = -flto -lm -lcheck
 
 PREFIX = /usr/local

@@ -38,16 +38,17 @@
 #include "search.h"
 
 #define MAX_DEPTH 128
-#define MAX_KILLER_MOVES 2
-
 #define MAX_PLY 256
+#define REPETITION_TABLE_LEN 8191
+#define MAX_KILLER_MOVES 2
 
 struct search_data {
 	int ply;
 	long long nodes;
 	Position *pos;
 	Move killers[MAX_PLY + 1][MAX_KILLER_MOVES];
-	Move current_move[MAX_PLY + 1];
+	Move move_made[MAX_PLY + 1];
+	i8 repetitions[REPETITION_TABLE_LEN];
 };
 
 struct result {
@@ -63,12 +64,62 @@ struct parameters {
 	long long nodes;
 	struct timespec stop_time;
 	Position *pos;
+	Position **old_positions;
+	size_t num_old_positions;
 	bool *stop;
 	pthread_mutex_t *stop_mtx;
 	void (*output)(const struct info *);
 };
 
 static const int INFINITE = SHRT_MAX;
+
+static void inc_repetition(i8 *repetitions, const Position *pos)
+{
+	const u64 hash = tt_hash(pos);
+	const size_t key = hash % REPETITION_TABLE_LEN;
+	++repetitions[key];
+}
+
+static void dec_repetition(i8 *repetitions, const Position *pos)
+{
+	const u64 hash = tt_hash(pos);
+	const size_t key = hash % REPETITION_TABLE_LEN;
+	--repetitions[key];
+}
+
+static bool repeated(struct search_data *data, const struct parameters *params)
+{
+	const u64 hash = tt_hash(data->pos);
+	const size_t key = hash % REPETITION_TABLE_LEN;
+
+	if (!data->repetitions[key])
+		return false;
+
+	Position *prev_pos = pos_copy(data->pos);
+
+	/* One position is skipped because it's impossible that it's the same as
+	 * the current one. */
+	int prev_ply = data->ply - 1;
+	for (; prev_ply >= 0; --prev_ply) {
+		move_undo(prev_pos, data->move_made[prev_ply]);
+		--prev_ply;
+		if (prev_ply < 0)
+			break;
+		move_undo(prev_pos, data->move_made[prev_ply]);
+
+		if (pos_equal(data->pos, prev_pos))
+			return true;
+	}
+	pos_destroy(prev_pos);
+
+	/* We also have to check the positions from previous searches. */
+	for (size_t i = 0; i < params->num_old_positions; ++i) {
+		if (pos_equal(data->pos, params->old_positions[i]))
+			return true;
+	}
+
+	return false;
+}
 
 /*
  * This function stores a new killer move by shifting all the killer moves for
@@ -235,6 +286,10 @@ struct info *info, const struct parameters *params)
 	++data->nodes;
 	++info->nodes;
 
+	if (repeated(data, params))
+		return 0;
+	inc_repetition(data->repetitions, data->pos);
+
 	NodeData pos_data;
 	if (tt_get(&pos_data, data->pos) && pos_data.depth >= depth)
 		return pos_data.score;
@@ -273,9 +328,11 @@ struct info *info, const struct parameters *params)
 			continue;
 
 		move_do(data->pos, move);
+		data->move_made[data->ply] = move;
 		++data->ply;
 		tt_prefetch();
 		int score = -qsearch(depth - 1, -beta, -alpha, data, info, params);
+		dec_repetition(data->repetitions, data->pos);
 		move_undo(data->pos, move);
 		--data->ply;
 
@@ -294,7 +351,7 @@ struct info *info, const struct parameters *params)
 	if (!has_legal) {
 		if (is_in_check(data->pos)) {
 			info->mate = (data->ply + 1) / 2;
-			return -INFINITE;
+			return -INFINITE + data->ply;
 		} else {
 			return 0;
 		}
@@ -328,6 +385,10 @@ struct info *info, const struct parameters *params)
 
 	++data->nodes;
 	++info->nodes;
+
+	if (repeated(data, params))
+		return 0;
+	inc_repetition(data->repetitions, data->pos);
 
 	NodeData pos_data;
 	if (tt_get(&pos_data, data->pos) && pos_data.depth >= depth)
@@ -378,9 +439,11 @@ struct info *info, const struct parameters *params)
 		}
 
 		move_do(data->pos, move);
+		data->move_made[data->ply] = move;
 		++data->ply;
 		tt_prefetch();
 		int score = -negamax(depth - 1, -beta, -alpha, data, info, params);
+		dec_repetition(data->repetitions, data->pos);
 		move_undo(data->pos, move);
 		--data->ply;
 
@@ -401,7 +464,7 @@ struct info *info, const struct parameters *params)
 	if (!has_legal) {
 		if (is_in_check(data->pos)) {
 			info->mate = (data->ply + 1) / 2;
-			return -INFINITE;
+			return -INFINITE + data->ply;
 		} else {
 			return 0;
 		}
@@ -467,8 +530,13 @@ static struct result search(const struct parameters *params)
 	data.ply = 0;
 	data.nodes = 0;
 	data.pos = pos_copy(params->pos);
-	memset(data.current_move, 0, sizeof(data.current_move));
+	memset(data.move_made, 0, sizeof(data.move_made));
 	memset(data.killers, 0, sizeof(data.killers));
+	memset(data.repetitions, 0, sizeof(data.repetitions));
+	for (size_t i = 0; i < params->num_old_positions; ++i)
+		inc_repetition(data.repetitions, params->old_positions[i]);
+
+	inc_repetition(data.repetitions, data.pos);
 
 	struct info info;
 	info.depth = params->depth;
@@ -502,11 +570,12 @@ static struct result search(const struct parameters *params)
 			continue;
 
 		move_do(data.pos, move);
+		data.move_made[data.ply] = move;
 		++data.ply;
 		tt_prefetch();
 		int score = -negamax(params->depth - 1, -beta, -alpha, &data, &info, params);
+		dec_repetition(data.repetitions, data.pos);
 		move_undo(data.pos, move);
-
 		--data.ply;
 
 		if (score > alpha) {
@@ -540,8 +609,9 @@ static struct result search(const struct parameters *params)
 				result.best = moves[i];
 		}
 	}
-
 	free(moves);
+
+	dec_repetition(data.repetitions, data.pos);
 	pos_destroy(data.pos);
 
 	return result;
@@ -594,7 +664,7 @@ void *search_run(void *data)
 	if (arg->settings.perft) {
 		struct parameters params;
 		params.depth = arg->settings.perft;
-		params.pos = arg->settings.position;
+		params.pos = arg->settings.positions[arg->settings.num_positions - 1];
 		params.output = arg->settings.info_sender;
 		perft(&params);
 		return NULL;
@@ -607,7 +677,9 @@ void *search_run(void *data)
 		params.mate = arg->settings.mate;
 		params.movestogo = arg->settings.movestogo;
 		params.nodes = nodes;
-		params.pos = arg->settings.position;
+		params.pos = arg->settings.positions[arg->settings.num_positions - 1];
+		params.old_positions = arg->settings.positions;
+		params.num_old_positions = arg->settings.num_positions - 1;
 		params.stop = arg->stop;
 		params.stop_mtx = arg->stop_mtx;
 		params.output = arg->settings.info_sender;
@@ -629,7 +701,6 @@ void *search_run(void *data)
 	}
 	arg->settings.best_move_sender(best_move);
 
-	pos_destroy(arg->settings.position);
 	free(arg);
 	return NULL;
 }

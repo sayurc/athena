@@ -66,7 +66,7 @@ static void init_hash(void)
 	}
 }
 
-static u64 hash(const Position *pos)
+u64 tt_hash(const Position *pos)
 {
 	u64 key = 0;
 	u64 *ptr = zobrist_numbers;
@@ -106,7 +106,7 @@ static u64 hash(const Position *pos)
  */
 bool tt_get(NodeData *data, const Position *pos)
 {
-	const u64 node_hash = hash(pos);
+	const u64 node_hash = tt_hash(pos);
 	const size_t key = node_hash % transposition_table.capacity;
 	struct node_data tt_data = transposition_table.ptr[key];
 	if (node_hash == tt_data.hash) {
@@ -128,7 +128,7 @@ void tt_entry_init(NodeData *data, int score, int depth, NodeType type, Move bes
 	data->depth = depth;
 	data->type = type;
 	data->best_move = best_move;
-	data->hash = hash(pos);
+	data->hash = tt_hash(pos);
 }
 
 void tt_prefetch(void)

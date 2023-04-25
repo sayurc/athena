@@ -40,7 +40,8 @@
 static pthread_t search_thread;
 static bool started_search = false;
 static bool newgame_has_been_run = false;
-static Position *current_position = NULL;
+static Position **positions = NULL;
+static size_t num_positions = 0;
 static pthread_mutex_t search_stop_mtx = PTHREAD_MUTEX_INITIALIZER;
 static bool search_stop = false;
 
@@ -308,8 +309,11 @@ static void quit(void)
 		pthread_join(search_thread, NULL);
 		started_search = false;
 	}
-	if (current_position)
-		pos_destroy(current_position);
+	if (num_positions > 0) {
+		for (size_t i = 0; i < num_positions; ++i)
+			pos_destroy(positions[i]);
+		free(positions);
+	}
 	for (size_t i = 0; i < sizeof(options) / sizeof(options[0]); ++i) {
 		struct option *const op = &options[i];
 		if (op->type == OPTION_TYPE_STRING)
@@ -339,7 +343,7 @@ static void go(void)
 		started_search = false;
 	}
 
-	if (!current_position) {
+	if (!positions) {
 		fprintf(stderr, "go command sent before position command.\n");
 		return;
 	}
@@ -349,7 +353,8 @@ static void go(void)
 	arg->stop = &search_stop;
 	arg->settings.best_move_sender = bestmove;
 	arg->settings.info_sender = info;
-	arg->settings.position = pos_copy(current_position);
+	arg->settings.positions = positions;
+	arg->settings.num_positions = num_positions;
 	arg->settings.infinite = true;
 	arg->settings.depth = INT_MAX;
 	arg->settings.nodes = LLONG_MAX;
@@ -408,8 +413,12 @@ static void go(void)
 
 static void ucinewgame(void)
 {
-	if (current_position)
-		pos_destroy(current_position);
+	if (num_positions > 0) {
+		for (size_t i = 0; i < num_positions; ++i)
+			pos_destroy(positions[i]);
+		free(positions);
+		num_positions = 0;
+	}
 	search_finish();
 	movegen_init();
 	search_init();
@@ -422,11 +431,15 @@ static void position(char *split_str)
 		ucinewgame();
 	const char *startpos = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
+	const size_t num_positions_copy = num_positions;
+	++num_positions;
+	positions = realloc(positions, num_positions * sizeof(Position *));
+	Position *pos = NULL;
+
 	const char *token = strtok(NULL, " ");
 	if (token && !strcmp(token, "startpos")) {
-		if (current_position)
-			pos_destroy(current_position);
-		current_position = pos_create(startpos);
+		pos = pos_create(startpos);
+		positions[num_positions - 1] = pos;
 	} else if (token && !strcmp(token, "fen")) {
 		char *fen = NULL;
 		const size_t num_fen_parts = 6;
@@ -434,7 +447,7 @@ static void position(char *split_str)
 		for (size_t i = 0; i < num_fen_parts; ++i) {
 			parts[i] = strtok(NULL, " ");
 			if (!parts[i])
-				fprintf(stderr, "Invalid UCI command.\n");
+				goto error;
 		}
 		size_t fen_len = 0;
 		for (size_t i = 0; i < num_fen_parts; ++i) {
@@ -442,9 +455,8 @@ static void position(char *split_str)
 			fen_len += part_len + 1; /* + 1 for space or '\0'. */
 			char *tmp = realloc(fen, fen_len);
 			if (!tmp) {
-				fprintf(stderr, "Could not allocate memory.\n");
 				free(fen);
-				return;
+				goto error;
 			}
 			fen = tmp;
 			char *part_ptr = fen + fen_len - part_len - 1;
@@ -458,29 +470,22 @@ static void position(char *split_str)
 				--fen_len;
 			}
 		}
-		if (current_position)
-			pos_destroy(current_position);
-		current_position = pos_create(fen);
-		if (!current_position) {
-			fprintf(stderr, "Invalid UCI command.\n");
+		pos = pos_create(fen);
+		if (!pos) {
 			free(fen);
-			return;
+			goto error;
 		}
+		positions[num_positions - 1] = pos;
 		free(fen);
 	} else {
-		fprintf(stderr, "Invalid UCI command.\n");
-		return;
+		goto error;
 	}
 
 	token = strtok(NULL, " ");
 	if (!token)
 		return;
-	if (strcmp(token, "moves")) {
-		fprintf(stderr, "Invalid UCI command\n");
-		pos_destroy(current_position);
-		current_position = NULL;
-		return;
-	}
+	if (strcmp(token, "moves"))
+		goto error;
 
 	size_t num_moves = 0;
 	size_t capacity_moves = 0;
@@ -488,10 +493,8 @@ static void position(char *split_str)
 	for (char *move = strtok(NULL, " "); move; move = strtok(NULL, " ")) {
 		const size_t move_len = strlen(move);
 		if (move_len > max_lan_len) {
-			fprintf(stderr, "Invalid UCI command.\n");
 			free(split_str);
-			pos_destroy(current_position);
-			current_position = NULL;
+			goto error;
 			return;
 		}
 		++num_moves;
@@ -499,26 +502,31 @@ static void position(char *split_str)
 			capacity_moves += 128;
 			Move *tmp = realloc(moves, capacity_moves);
 			if (!tmp) {
-				fprintf(stderr, "Could not allocate memory.\n");
 				free(moves);
-				pos_destroy(current_position);
-				current_position = NULL;
-				return ;
+				goto error;
 			}
 			moves = tmp;
 		}
 		bool success;
-		moves[num_moves - 1] = lan_to_move(move, current_position, &success);
+		moves[num_moves - 1] = lan_to_move(move, positions[num_positions - 1], &success);
 		if (!success) {
-			fprintf(stderr, "Invalid UCI command.\n");
 			free(moves);
-			pos_destroy(current_position);
-			current_position = NULL;
-			return;
+			goto error;
 		}
-		move_do(current_position, moves[num_moves - 1]);
+
+		/* The position after each move is stored in the list. */
+		Position *next_pos = pos_copy(positions[num_positions - 1]);
+		move_do(next_pos, moves[num_moves - 1]);
+		++num_positions;
+		positions = realloc(positions, num_positions * sizeof(Position *));
+		positions[num_positions - 1] = next_pos;
 	}
 	free(moves);
+	return;
+
+error:
+	num_positions = num_positions_copy;
+	positions = realloc(positions, num_positions * sizeof(Position *));
 }
 
 static void isready(void)

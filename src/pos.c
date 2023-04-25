@@ -292,6 +292,42 @@ static size_t parse_fen(Position *pos, const char *fen)
 	return rc;
 }
 
+/*
+ * Returns true if two positions are the same and false otherwise. This is not
+ * a full comparison of the positions in memory, it's supposed to be used for
+ * enforcing the threefold repetition rule so it only compares the elements that
+ * are necessary to make two positions the same according to the rules of chess.
+ */
+bool pos_equal(const Position *pos1, const Position *pos2)
+{
+	if (pos_get_side_to_move(pos1) != pos_get_side_to_move(pos2))
+		return false;
+	for (Color c = COLOR_WHITE; c <= COLOR_BLACK; ++c) {
+		for (CastlingSide s = CASTLING_SIDE_QUEEN; s <= CASTLING_SIDE_KING; ++s) {
+			const bool pos1_has = pos_has_castling_right(pos1, c, s);
+			const bool pos2_has = pos_has_castling_right(pos2, c, s);
+			if (pos1_has != pos2_has)
+				return false;
+		}
+	}
+	if (pos_enpassant_possible(pos1) != pos_enpassant_possible(pos2))
+		return false;
+	else if (pos_enpassant_possible(pos1) && pos_enpassant_possible(pos2)) {
+		if (pos_get_enpassant(pos1) != pos_get_enpassant(pos2))
+			return false;
+	}
+	if (pos1->color_bb[COLOR_WHITE] != pos2->color_bb[COLOR_WHITE])
+		return false;
+	if (pos1->color_bb[COLOR_BLACK] != pos2->color_bb[COLOR_BLACK])
+		return false;
+	for (PieceType pt = PIECE_TYPE_PAWN; pt <= PIECE_TYPE_KING; ++pt) {
+		if (pos1->type_bb[pt] != pos2->type_bb[pt])
+			return false;
+	}
+
+	return true;
+}
+
 void pos_print(const Position *pos)
 {
 	const char piece_table[] = {
