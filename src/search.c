@@ -57,6 +57,11 @@ struct result {
 	long long nodes;
 };
 
+/*
+ * These are the search parameters passed to the main search function by the
+ * iterative deepening function. old_positions are previous positions in the
+ * game and are used to enforce the threefold repetition rule.
+ */
 struct parameters {
 	int depth;
 	int mate;
@@ -87,6 +92,17 @@ static void dec_repetition(i8 *repetitions, const Position *pos)
 	--repetitions[key];
 }
 
+/*
+ * The threefold repetition rule is enforced by comparing the current position
+ * with the previous positions in the current line of the search tree and also
+ * with the positions of before the search. As an optimization trick we use a
+ * hash table that stores a counter of how many times each position has been
+ * reached along the current line, so the position's counter should be
+ * incremented each time the search function enters the node and decremented
+ * after exiting. Of course, different positions may hash to the same index so
+ * we still have to compare the previous positions to make sure the counter
+ * counted the right position.
+ */
 static bool repeated(struct search_data *data, const struct parameters *params)
 {
 	const u64 hash = tt_hash(data->pos);
@@ -112,7 +128,6 @@ static bool repeated(struct search_data *data, const struct parameters *params)
 	}
 	pos_destroy(prev_pos);
 
-	/* We also have to check the positions from previous searches. */
 	for (size_t i = 0; i < params->num_old_positions; ++i) {
 		if (pos_equal(data->pos, params->old_positions[i]))
 			return true;
@@ -211,9 +226,9 @@ struct search_data *data)
 }
 
 /*
- * Returns the index of what seems to be the most promising for the quiescence
- * search. Non capture moves will be ignored. If there are no more capturing
- * moves then *ended is set to true.
+ * Returns the index of what seems to be the most move promising for the
+ * quiescence search. Non capture moves will be ignored. If there are no more
+ * capturing moves then *ended is set to true.
  */
 static size_t get_next_qmove(const Move *moves, size_t len,
 struct search_data *data, bool *ended)
@@ -643,6 +658,11 @@ static void perft(const struct parameters *params)
  * After signaling stop the calling thread must not change the stop information
  * until the search thread terminates, otherwise the search functions might
  * stop while this function might not and it will continue searching.
+ * 
+ * This function returns the best move for the last position in the position
+ * list in the search_settings struct and the other positions are used to
+ * enforce the threefold repetition rule so they should be in the order they
+ * happened in the game.
  */
 void *search_run(void *data)
 {
