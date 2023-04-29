@@ -59,8 +59,8 @@ struct result {
 
 /*
  * These are the search parameters passed to the main search function by the
- * iterative deepening function. old_positions are previous positions in the
- * game and are used to enforce the threefold repetition rule.
+ * iterative deepening function, including moves played previously for the
+ * threefold repetition rule.
  */
 struct parameters {
 	int depth;
@@ -69,8 +69,8 @@ struct parameters {
 	long long nodes;
 	struct timespec stop_time;
 	Position *pos;
-	Position **old_positions;
-	size_t num_old_positions;
+	Move *moves;
+	int num_moves;
 	bool *stop;
 	pthread_mutex_t *stop_mtx;
 	void (*output)(const struct info *);
@@ -90,6 +90,19 @@ static void dec_repetition(i8 *repetitions, const Position *pos)
 	const u64 hash = tt_hash(pos);
 	const size_t key = hash % REPETITION_TABLE_LEN;
 	--repetitions[key];
+}
+
+static Move get_move(int ply, struct search_data *data, const struct parameters *params)
+{
+	if (ply < 0) {
+		int idx = ply + params->num_moves;
+		if (idx >= 0 && idx < params->num_moves)
+			return params->moves[ply + params->num_moves];
+	} else {
+		return data->move_made[ply];
+	}
+
+	return 0;
 }
 
 /*
@@ -113,25 +126,33 @@ static bool repeated(struct search_data *data, const struct parameters *params)
 
 	Position *prev_pos = pos_copy(data->pos);
 
-	/* One position is skipped because it's impossible that it's the same as
-	 * the current one. */
-	int prev_ply = data->ply - 1;
-	for (; prev_ply >= 0; --prev_ply) {
-		move_undo(prev_pos, data->move_made[prev_ply]);
-		--prev_ply;
-		if (prev_ply < 0)
+	for (int prev_ply = data->ply - 1;; --prev_ply) {
+		/* One position is skipped because it's impossible that it's the
+		 * same as the current one. */
+		Move move = get_move(prev_ply, data, params);
+		if (!move)
 			break;
-		move_undo(prev_pos, data->move_made[prev_ply]);
+		move_undo(prev_pos, move);
+		--prev_ply;
 
-		if (pos_equal(data->pos, prev_pos))
+		move = get_move(prev_ply, data, params);
+		if (!move)
+			break;
+
+		const Square from = move_get_origin(move);
+		const Piece piece = pos_get_piece_at(prev_pos, from);
+		const PieceType pt = pos_get_piece_type(piece);
+		if (!move_is_quiet(move) || move_is_castling(move) || pt == PIECE_TYPE_PAWN)
+			break;
+
+		move_undo(prev_pos, move);
+		if (pos_equal(data->pos, prev_pos)) {
+			pos_destroy(prev_pos);
 			return true;
+		}
 	}
+
 	pos_destroy(prev_pos);
-
-	for (size_t i = 0; i < params->num_old_positions; ++i) {
-		if (pos_equal(data->pos, params->old_positions[i]))
-			return true;
-	}
 
 	return false;
 }
@@ -518,6 +539,22 @@ const struct timespec *ts2)
 	return ceil(t2 - t1);
 }
 
+void init_repetition_table(struct search_data *data, const struct parameters *params)
+{
+	if (!params->num_moves)
+		return;
+	memset(data->repetitions, 0, sizeof(data->repetitions));
+
+	Position *prev_pos = pos_copy(data->pos);
+
+	for (int i = params->num_moves - 1; i >= 0; --i) {
+		move_undo(prev_pos, params->moves[i]);
+		inc_repetition(data->repetitions, prev_pos);
+	}
+
+	pos_destroy(prev_pos);
+}
+
 /*
  * This is the root search function that calls the main negamax function, which
  * is used to score the root moves and the best one is returned. If the position
@@ -547,9 +584,7 @@ static struct result search(const struct parameters *params)
 	data.pos = pos_copy(params->pos);
 	memset(data.move_made, 0, sizeof(data.move_made));
 	memset(data.killers, 0, sizeof(data.killers));
-	memset(data.repetitions, 0, sizeof(data.repetitions));
-	for (size_t i = 0; i < params->num_old_positions; ++i)
-		inc_repetition(data.repetitions, params->old_positions[i]);
+	init_repetition_table(&data, params);
 
 	inc_repetition(data.repetitions, data.pos);
 
@@ -684,7 +719,7 @@ void *search_run(void *data)
 	if (arg->settings.perft) {
 		struct parameters params;
 		params.depth = arg->settings.perft;
-		params.pos = arg->settings.positions[arg->settings.num_positions - 1];
+		params.pos = arg->settings.pos;
 		params.output = arg->settings.info_sender;
 		perft(&params);
 		return NULL;
@@ -697,9 +732,9 @@ void *search_run(void *data)
 		params.mate = arg->settings.mate;
 		params.movestogo = arg->settings.movestogo;
 		params.nodes = nodes;
-		params.pos = arg->settings.positions[arg->settings.num_positions - 1];
-		params.old_positions = arg->settings.positions;
-		params.num_old_positions = arg->settings.num_positions - 1;
+		params.pos = arg->settings.pos;
+		params.moves = arg->settings.moves;
+		params.num_moves = arg->settings.num_moves;
 		params.stop = arg->stop;
 		params.stop_mtx = arg->stop_mtx;
 		params.output = arg->settings.info_sender;

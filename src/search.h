@@ -39,8 +39,9 @@ struct info {
 struct thread_data;
 
 struct search_settings {
-	Position **positions;
-	size_t num_positions;
+	Position *pos;
+	Move *moves;
+	int num_moves;
 	bool infinite;
 	int depth;
 	int mate;

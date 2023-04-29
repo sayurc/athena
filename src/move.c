@@ -404,6 +404,13 @@ bool move_is_promotion(Move move)
 	       type == MOVE_QUEEN_PROMOTION_CAPTURE;
 }
 
+bool move_is_castling(Move move)
+{
+	const MoveType type = move_get_type(move);
+
+	return type == MOVE_QUEEN_CASTLE || type == MOVE_KING_CASTLE;
+}
+
 PieceType move_get_promotion_piece_type(Move move)
 {
 	const MoveType type = move_get_type(move);

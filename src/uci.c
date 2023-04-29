@@ -40,8 +40,9 @@
 static pthread_t search_thread;
 static bool started_search = false;
 static bool newgame_has_been_run = false;
-static Position **positions = NULL;
-static size_t num_positions = 0;
+static Position *current_position = NULL;
+static Move *move_list = NULL;
+int num_moves = 0;
 static pthread_mutex_t search_stop_mtx = PTHREAD_MUTEX_INITIALIZER;
 static bool search_stop = false;
 
@@ -130,9 +131,9 @@ static void move_to_lan(char *lan, Move move)
 static Move lan_to_move(const char *lan, const Position *pos, bool *success)
 {
 	char test_lan[max_lan_len + 1];
-	size_t num_moves;
-	Move *moves = movegen_get_pseudo_legal_moves(pos, &num_moves);
-	for (size_t i = 0; i < num_moves; ++i) {
+	size_t len;
+	Move *moves = movegen_get_pseudo_legal_moves(pos, &len);
+	for (size_t i = 0; i < len; ++i) {
 		Move move = moves[i];
 		move_to_lan(test_lan, move);
 		if (!strcmp(test_lan, lan)) {
@@ -309,10 +310,13 @@ static void quit(void)
 		pthread_join(search_thread, NULL);
 		started_search = false;
 	}
-	if (num_positions > 0) {
-		for (size_t i = 0; i < num_positions; ++i)
-			pos_destroy(positions[i]);
-		free(positions);
+	if (current_position) {
+		pos_destroy(current_position);
+		current_position = NULL;
+	}
+	if (move_list) {
+		free(move_list);
+		move_list = NULL;
 	}
 	for (size_t i = 0; i < sizeof(options) / sizeof(options[0]); ++i) {
 		struct option *const op = &options[i];
@@ -343,7 +347,7 @@ static void go(void)
 		started_search = false;
 	}
 
-	if (!positions) {
+	if (!current_position) {
 		fprintf(stderr, "go command sent before position command.\n");
 		return;
 	}
@@ -353,8 +357,9 @@ static void go(void)
 	arg->stop = &search_stop;
 	arg->settings.best_move_sender = bestmove;
 	arg->settings.info_sender = info;
-	arg->settings.positions = positions;
-	arg->settings.num_positions = num_positions;
+	arg->settings.pos = current_position;
+	arg->settings.moves = move_list;
+	arg->settings.num_moves = num_moves;
 	arg->settings.infinite = true;
 	arg->settings.depth = INT_MAX;
 	arg->settings.nodes = LLONG_MAX;
@@ -413,11 +418,13 @@ static void go(void)
 
 static void ucinewgame(void)
 {
-	if (num_positions > 0) {
-		for (size_t i = 0; i < num_positions; ++i)
-			pos_destroy(positions[i]);
-		free(positions);
-		num_positions = 0;
+	if (current_position) {
+		pos_destroy(current_position);
+		current_position = NULL;
+	}
+	if (move_list) {
+		free(move_list);
+		move_list = NULL;
 	}
 	search_finish();
 	movegen_init();
@@ -431,15 +438,11 @@ static void position(char *split_str)
 		ucinewgame();
 	const char *startpos = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-	const size_t num_positions_copy = num_positions;
-	++num_positions;
-	positions = realloc(positions, num_positions * sizeof(Position *));
 	Position *pos = NULL;
 
 	const char *token = strtok(NULL, " ");
 	if (token && !strcmp(token, "startpos")) {
 		pos = pos_create(startpos);
-		positions[num_positions - 1] = pos;
 	} else if (token && !strcmp(token, "fen")) {
 		char *fen = NULL;
 		const size_t num_fen_parts = 6;
@@ -447,7 +450,7 @@ static void position(char *split_str)
 		for (size_t i = 0; i < num_fen_parts; ++i) {
 			parts[i] = strtok(NULL, " ");
 			if (!parts[i])
-				goto error;
+				return;
 		}
 		size_t fen_len = 0;
 		for (size_t i = 0; i < num_fen_parts; ++i) {
@@ -456,7 +459,7 @@ static void position(char *split_str)
 			char *tmp = realloc(fen, fen_len);
 			if (!tmp) {
 				free(fen);
-				goto error;
+				return;
 			}
 			fen = tmp;
 			char *part_ptr = fen + fen_len - part_len - 1;
@@ -473,60 +476,58 @@ static void position(char *split_str)
 		pos = pos_create(fen);
 		if (!pos) {
 			free(fen);
-			goto error;
+			return;;
 		}
-		positions[num_positions - 1] = pos;
 		free(fen);
 	} else {
-		goto error;
+		return;
 	}
 
 	token = strtok(NULL, " ");
-	if (!token)
+	if (!token) {
+		current_position = pos;
 		return;
+	}
 	if (strcmp(token, "moves"))
-		goto error;
+		return;
 
-	size_t num_moves = 0;
+	size_t num = 0;
 	size_t capacity_moves = 0;
 	Move *moves = NULL;
 	for (char *move = strtok(NULL, " "); move; move = strtok(NULL, " ")) {
 		const size_t move_len = strlen(move);
 		if (move_len > max_lan_len) {
 			free(split_str);
-			goto error;
 			return;
 		}
-		++num_moves;
-		if (num_moves > capacity_moves) {
+		++num;
+		if (num > capacity_moves) {
 			capacity_moves += 128;
 			Move *tmp = realloc(moves, capacity_moves);
 			if (!tmp) {
 				free(moves);
-				goto error;
+				return;
 			}
 			moves = tmp;
 		}
 		bool success;
-		moves[num_moves - 1] = lan_to_move(move, positions[num_positions - 1], &success);
+		moves[num - 1] = lan_to_move(move, pos, &success);
 		if (!success) {
 			free(moves);
-			goto error;
+			return;
 		}
 
 		/* The position after each move is stored in the list. */
-		Position *next_pos = pos_copy(positions[num_positions - 1]);
-		move_do(next_pos, moves[num_moves - 1]);
-		++num_positions;
-		positions = realloc(positions, num_positions * sizeof(Position *));
-		positions[num_positions - 1] = next_pos;
+		move_do(pos, moves[num - 1]);
 	}
-	free(moves);
-	return;
 
-error:
-	num_positions = num_positions_copy;
-	positions = realloc(positions, num_positions * sizeof(Position *));
+	if (current_position)
+		pos_destroy(current_position);
+	if (move_list)
+		free(move_list);
+	current_position = pos;
+	move_list = moves;
+	num_moves = num;
 }
 
 static void isready(void)

@@ -57,6 +57,7 @@ Move move_new(Square from, Square to, MoveType type);
 bool move_is_quiet(Move move);
 bool move_is_capture(Move move);
 bool move_is_promotion(Move move);
+bool move_is_castling(Move move);
 PieceType move_get_promotion_piece_type(Move move);
 Square move_get_origin(Move move);
 Square move_get_target(Move move);
