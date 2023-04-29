@@ -92,7 +92,28 @@ static void dec_repetition(i8 *repetitions, const Position *pos)
 	--repetitions[key];
 }
 
-static Move get_move(int ply, struct search_data *data, const struct parameters *params)
+void init_repetition_table(struct search_data *data, const struct parameters *params)
+{
+	if (!params->num_moves)
+		return;
+	memset(data->repetitions, 0, sizeof(data->repetitions));
+
+	Position *prev_pos = pos_copy(data->pos);
+
+	for (int i = params->num_moves - 1; i >= 0; --i) {
+		move_undo(prev_pos, params->moves[i]);
+		inc_repetition(data->repetitions, prev_pos);
+	}
+
+	pos_destroy(prev_pos);
+}
+
+/*
+ * Returns the move that was played at a ply. Negative plies index the moves
+ * that were played before the search, if no moves have been played at the ply
+ * then it will return 0.
+ */
+static Move get_ply_move(int ply, struct search_data *data, const struct parameters *params)
 {
 	if (ply < 0) {
 		int idx = ply + params->num_moves;
@@ -126,16 +147,16 @@ static bool repeated(struct search_data *data, const struct parameters *params)
 
 	Position *prev_pos = pos_copy(data->pos);
 
-	for (int prev_ply = data->ply - 1;; --prev_ply) {
+	for (int ply = data->ply;; --ply) {
 		/* One position is skipped because it's impossible that it's the
 		 * same as the current one. */
-		Move move = get_move(prev_ply, data, params);
+		Move move = get_ply_move(ply, data, params);
 		if (!move)
 			break;
 		move_undo(prev_pos, move);
-		--prev_ply;
+		--ply;
 
-		move = get_move(prev_ply, data, params);
+		move = get_ply_move(ply, data, params);
 		if (!move)
 			break;
 
@@ -364,8 +385,8 @@ struct info *info, const struct parameters *params)
 			continue;
 
 		move_do(data->pos, move);
-		data->move_made[data->ply] = move;
 		++data->ply;
+		data->move_made[data->ply] = move;
 		tt_prefetch();
 		int score = -qsearch(depth - 1, -beta, -alpha, data, info, params);
 		dec_repetition(data->repetitions, data->pos);
@@ -386,7 +407,7 @@ struct info *info, const struct parameters *params)
 
 	if (!has_legal) {
 		if (is_in_check(data->pos)) {
-			info->mate = (data->ply + 1) / 2;
+			info->mate = (data->ply + 1) / 2 + 1;
 			return -INFINITE + data->ply;
 		} else {
 			return 0;
@@ -475,8 +496,8 @@ struct info *info, const struct parameters *params)
 		}
 
 		move_do(data->pos, move);
-		data->move_made[data->ply] = move;
 		++data->ply;
+		data->move_made[data->ply] = move;
 		tt_prefetch();
 		int score = -negamax(depth - 1, -beta, -alpha, data, info, params);
 		dec_repetition(data->repetitions, data->pos);
@@ -499,7 +520,7 @@ struct info *info, const struct parameters *params)
 
 	if (!has_legal) {
 		if (is_in_check(data->pos)) {
-			info->mate = (data->ply + 1) / 2;
+			info->mate = (data->ply + 1) / 2 + 1;
 			return -INFINITE + data->ply;
 		} else {
 			return 0;
@@ -537,22 +558,6 @@ const struct timespec *ts2)
 	const double t1 = ts1->tv_sec * 1e3 + ts1->tv_nsec / 10e6;
 	const double t2 = ts2->tv_sec * 1e3 + ts2->tv_nsec / 10e6;
 	return ceil(t2 - t1);
-}
-
-void init_repetition_table(struct search_data *data, const struct parameters *params)
-{
-	if (!params->num_moves)
-		return;
-	memset(data->repetitions, 0, sizeof(data->repetitions));
-
-	Position *prev_pos = pos_copy(data->pos);
-
-	for (int i = params->num_moves - 1; i >= 0; --i) {
-		move_undo(prev_pos, params->moves[i]);
-		inc_repetition(data->repetitions, prev_pos);
-	}
-
-	pos_destroy(prev_pos);
 }
 
 /*
@@ -621,12 +626,10 @@ static struct result search(const struct parameters *params)
 
 		move_do(data.pos, move);
 		data.move_made[data.ply] = move;
-		++data.ply;
 		tt_prefetch();
 		int score = -negamax(params->depth - 1, -beta, -alpha, &data, &info, params);
 		dec_repetition(data.repetitions, data.pos);
 		move_undo(data.pos, move);
-		--data.ply;
 
 		if (score > alpha) {
 			alpha = score;
