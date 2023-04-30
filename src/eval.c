@@ -213,18 +213,6 @@ static void init_possible_moves_table(void)
 	}
 }
 
-static void flip_table(i8 *restrict dst, const i8 *restrict src)
-{
-	for (size_t r = RANK_1; r <= RANK_8; ++r) {
-		for (size_t f = FILE_A; f <= FILE_H; ++f) {
-			const Square sq = pos_file_rank_to_square(f, r);
-			const Rank dst_r = RANK_8 - r;
-			const Square dst_sq = pos_file_rank_to_square(f, dst_r);
-			dst[dst_sq] = src[sq];
-		}
-	}
-}
-
 static void init_sq_tables(void)
 {
 	const int *const mg_tables[6] = {
@@ -298,30 +286,6 @@ static u64 get_least_valuable_attackers(Square sq, const Position *pos)
 	return ret;
 }
 
-/*
- * This function should be used during the opening only. It returns a positive
- * penalty value if the queen or rook aren't at their initial squares and 0
- * otherwise. It can only be called with rook or queen as argument because
- * there is no development penalty for other pieces during the opening.
- */
-static int get_dev_penalty(Piece piece, Square sq)
-{
-	const PieceType pt = pos_get_piece_type(piece);
-	const Color c = pos_get_piece_color(piece);
-
-	if (pt == PIECE_TYPE_ROOK) {
-		if (c == COLOR_WHITE)
-			return (sq != A1 && sq != H1) * 20;
-		else
-			return (sq != A8 && sq != H8) * 20;
-	} else {
-		if (c == COLOR_WHITE)
-			return (sq != D1) * 25;
-		else
-			return (sq != D8) * 25;
-	}
-}
-
 static int estimate_positioning_gain(Move move, Position *pos)
 {
 	const Square target = move_get_target(move);
@@ -347,31 +311,6 @@ static int estimate_positioning_gain(Move move, Position *pos)
 
 	score += sq_tables[piece_color][piece_type][target].mg;
 	score -= sq_tables[piece_color][piece_type][origin].mg;
-
-	return score;
-}
-
-static int compute_positioning(const Position *pos)
-{
-	const Color color = pos_get_side_to_move(pos);
-
-	int score = 0;
-
-	for (PieceType piece_type = PIECE_TYPE_PAWN; piece_type <= PIECE_TYPE_KING; ++piece_type) {
-		Piece piece = pos_make_piece(piece_type, color);
-		u64 bb = pos_get_piece_bitboard(pos, piece);
-		while (bb) {
-			const Square sq = unset_ls1b(&bb);
-			score += sq_tables[color][piece_type][sq].mg;
-		}
-
-		piece = pos_make_piece(piece_type, !color);
-		bb = pos_get_piece_bitboard(pos, piece);
-		while (bb) {
-			const Square sq = unset_ls1b(&bb);
-			score -= sq_tables[!color][piece_type][sq].mg;
-		}
-	}
 
 	return score;
 }
@@ -434,21 +373,6 @@ static int estimate_mobility_gain(Move move, Position *pos)
 	} else {
 		if (file >= FILE_B && file <= FILE_G)
 			mobility += 2;
-	}
-
-	return mobility;
-}
-
-static int compute_mobility(const Position *pos)
-{
-	const int c = pos_get_side_to_move(pos);
-	int mobility = 0;
-	
-	for (PieceType pt = PIECE_TYPE_PAWN; pt <= PIECE_TYPE_KING; ++pt) {
-		mobility += movegen_get_number_of_pseudo_legal_moves(pt, c, pos);
-	}
-	for (PieceType pt = PIECE_TYPE_PAWN; pt <= PIECE_TYPE_KING; ++pt) {
-		mobility -= movegen_get_number_of_pseudo_legal_moves(pt, !c, pos);	
 	}
 
 	return mobility;
