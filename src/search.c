@@ -384,8 +384,8 @@ struct info *info, const struct parameters *params)
 			continue;
 
 		move_do(data->pos, move);
-		++data->ply;
 		inc_pos_cnt(data->pos_cnt, data->pos);
+		++data->ply;
 		data->move_made[data->ply] = move;
 		tt_prefetch();
 		int score = -qsearch(depth - 1, -beta, -alpha, data, info, params);
