@@ -652,9 +652,14 @@ static struct result search(const struct parameters *params)
 	const double nps = (double)(info.nodes - old_nodes) * 1000 / dt;
 	info.nps = (long long)round(nps);
 	info.time = (long long)round(dt);
+	info.cp = alpha;
 	info.flags = INFO_FLAG_DEPTH | INFO_FLAG_NODES | INFO_FLAG_NPS | INFO_FLAG_TIME;
 	if (alpha == INFINITE)
 		info.flags |= INFO_FLAG_MATE;
+	else
+		info.flags |= INFO_FLAG_CP;
+	if (*params->stop)
+		info.flags |= INFO_FLAG_LBOUND;
 	params->output(&info);
 
 	if (!result.best && len) {

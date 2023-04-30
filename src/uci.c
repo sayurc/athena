@@ -257,7 +257,6 @@ static void id(void)
 static void info(const struct info *info)
 {
 	char *str = malloc(1), *tmp;
-	bool score_added = false;
 
 	str[0] = 0;
 
@@ -274,14 +273,17 @@ static void info(const struct info *info)
 		free(str);
 		str = tmp;
 	}
-	if (info->flags & INFO_FLAG_MATE && !score_added) {
-		asprintf(&tmp, "%sscore ", str);
+	if (info->flags & INFO_FLAG_CP) {
+		asprintf(&tmp, "%sscore %d ", str, info->cp);
 		free(str);
 		str = tmp;
-		score_added = true;
+	} else if (info->flags & INFO_FLAG_MATE) {
+		asprintf(&tmp, "%sscore mate %d ", str, info->mate);
+		free(str);
+		str = tmp;
 	}
-	if (info->flags & INFO_FLAG_MATE) {
-		asprintf(&tmp, "%smate %lld ", str, info->mate);
+	if (info->flags & INFO_FLAG_LBOUND) {
+		asprintf(&tmp, "%slowerbound ", str);
 		free(str);
 		str = tmp;
 	}

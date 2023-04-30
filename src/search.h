@@ -19,20 +19,27 @@
 #ifndef SEARCH_H
 #define SEARCH_H
 
+/*
+ * The flags INFO_FLAG_MATE and INFO_FLAG_CP are mutually exclusive and the flag
+ * INFO_FLAG_LBOUND should be set only if one of them is set.
+ */
 enum info_flag {
-	INFO_FLAG_DEPTH = 0x1,
-	INFO_FLAG_NODES = 0x1 << 1,
-	INFO_FLAG_NPS = 0x1 << 2,
-	INFO_FLAG_MATE = 0x1 << 3,
-	INFO_FLAG_TIME = 0x1 << 4,
+	INFO_FLAG_DEPTH  = 0x1,
+	INFO_FLAG_NODES  = 0x1 << 1,
+	INFO_FLAG_NPS    = 0x1 << 2,
+	INFO_FLAG_MATE   = 0x1 << 3,
+	INFO_FLAG_TIME   = 0x1 << 4,
+	INFO_FLAG_CP     = 0x1 << 5,
+	INFO_FLAG_LBOUND = 0x1 << 6,
 };
 
 struct info {
 	enum info_flag flags;
 	int depth;
+	int cp;
+	int mate;
 	long long nodes;
 	long long nps;
-	long long mate;
 	long long time;
 };
 
