@@ -693,6 +693,8 @@ static void perft(const struct parameters *params)
 
 	info.flags = INFO_FLAG_NODES | INFO_FLAG_NPS;
 	params->output(&info);
+
+	pos_destroy(pos);
 }
 
 /*
@@ -731,6 +733,7 @@ void *search_run(void *data)
 		params.pos = arg->settings.pos;
 		params.output = arg->settings.info_sender;
 		perft(&params);
+		free(arg);
 		return NULL;
 	}
 
