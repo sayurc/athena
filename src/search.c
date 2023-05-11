@@ -93,7 +93,8 @@ static void dec_pos_cnt(i8 *cnt, const Position *pos)
 	--cnt[key];
 }
 
-void init_pos_cnt_table(struct search_data *data, const struct parameters *params)
+void init_pos_cnt_table(struct search_data *data,
+                        const struct parameters *params)
 {
 	if (!params->num_moves)
 		return;
@@ -114,7 +115,8 @@ void init_pos_cnt_table(struct search_data *data, const struct parameters *param
  * that were played before the search, if no moves have been played at the ply
  * then it will return 0.
  */
-static Move get_ply_move(int ply, struct search_data *data, const struct parameters *params)
+static Move get_ply_move(int ply, struct search_data *data,
+                         const struct parameters *params)
 {
 	if (ply < 0) {
 		int idx = ply + params->num_moves;
@@ -164,7 +166,8 @@ static bool repeated(struct search_data *data, const struct parameters *params)
 		const Square from = move_get_origin(move);
 		const Piece piece = pos_get_piece_at(prev_pos, from);
 		const PieceType pt = pos_get_piece_type(piece);
-		if (!move_is_quiet(move) || move_is_castling(move) || pt == PIECE_TYPE_PAWN)
+		if (!move_is_quiet(move) || move_is_castling(move) ||
+		    pt == PIECE_TYPE_PAWN)
 			break;
 
 		move_undo(prev_pos, move);
@@ -243,7 +246,8 @@ struct search_data *data)
 	for (size_t i = 0; i < len; ++i) {
 		const Move move = moves[i];
 		NodeData pos_data;
-		if (tt_get(&pos_data, data->pos) && pos_data.type == NODE_TYPE_PV) {
+		if (tt_get(&pos_data, data->pos) &&
+		    pos_data.type == NODE_TYPE_PV) {
 			if (move == pos_data.best_move)
 				return i;
 		}
@@ -253,9 +257,11 @@ struct search_data *data)
 		const Move move = moves[i];
 		int score = 0;
 		if (is_killer(move, data->killers[data->ply]))
-			score = killer_offset + eval_evaluate_move(move, data->pos);
+			score = killer_offset +
+			        eval_evaluate_move(move, data->pos);
 		else if (move_is_capture(move))
-			score = capture_offset + eval_evaluate_move(move, data->pos);
+			score = capture_offset +
+			        eval_evaluate_move(move, data->pos);
 		else
 			score = eval_evaluate_move(move, data->pos);
 
@@ -285,7 +291,8 @@ struct search_data *data, bool *ended)
 			continue;
 
 		NodeData pos_data;
-		if (tt_get(&pos_data, data->pos) && pos_data.type == NODE_TYPE_PV) {
+		if (tt_get(&pos_data, data->pos) &&
+		    pos_data.type == NODE_TYPE_PV) {
 			if (move == pos_data.best_move)
 				return i;
 		}
@@ -310,7 +317,7 @@ static bool is_in_check(const Position *pos)
 	return movegen_is_square_attacked(king_sq, !c, pos);
 }
 
-static bool has_legal_moves(Move *moves, size_t len, Position *pos)
+static bool has_legal_moves(const Move *moves, size_t len, Position *pos)
 {
 	for (size_t i = 0; i < len; ++i) {
 		if (move_is_legal(pos, moves[i]))
@@ -330,7 +337,7 @@ static bool has_legal_moves(Move *moves, size_t len, Position *pos)
  * not as wide as the tree of all moves. 
  */
 static int qsearch(int depth, int alpha, int beta, struct search_data *data,
-struct info *info, const struct parameters *params)
+                   struct info *info, const struct parameters *params)
 {
 	pthread_mutex_lock(params->stop_mtx);
 	if (data->nodes >= params->nodes || data->ply > MAX_PLY)
@@ -367,8 +374,13 @@ struct info *info, const struct parameters *params)
 			Move first = moves[0];
 			bool ended = false;
 			size_t i = get_next_qmove(moves, len, data, &ended);
+			/* Because we skip quiet moves, when no legal moves are
+			 * found we have to check if the moves skipped are legal
+			 * otherwise the node will be considered a checkmate or
+			 * stalemate even if it isn't. */
 			if (ended && !has_legal) {
-				has_legal = has_legal_moves(moves, len, data->pos);
+				has_legal = has_legal_moves(moves, len,
+				                            data->pos);
 				break;
 			} else if (ended) {
 				break;
@@ -389,7 +401,8 @@ struct info *info, const struct parameters *params)
 		++data->ply;
 		data->move_made[data->ply] = move;
 		tt_prefetch();
-		int score = -qsearch(depth - 1, -beta, -alpha, data, info, params);
+		int score = -qsearch(depth - 1, -beta, -alpha, data, info,
+		                     params);
 		dec_pos_cnt(data->pos_cnt, data->pos);
 		move_undo(data->pos, move);
 		--data->ply;
@@ -508,7 +521,8 @@ struct info *info, const struct parameters *params)
 		++data->ply;
 		data->move_made[data->ply] = move;
 		tt_prefetch();
-		int score = -negamax(depth - 1, -beta, -alpha, data, info, params);
+		int score = -negamax(depth - 1, -beta, -alpha, data, info,
+		                     params);
 		dec_pos_cnt(data->pos_cnt, data->pos);
 		move_undo(data->pos, move);
 		--data->ply;
@@ -562,7 +576,7 @@ void search_finish(void)
  * Returns the elapsed time between two timestamps in milliseconds.
  */
 static double get_elapsed_time(const struct timespec *ts1,
-const struct timespec *ts2)
+                               const struct timespec *ts2)
 {
 	const double t1 = ts1->tv_sec * 1e3 + ts1->tv_nsec / 10e6;
 	const double t2 = ts2->tv_sec * 1e3 + ts2->tv_nsec / 10e6;
@@ -637,7 +651,8 @@ static struct result search(const struct parameters *params)
 		inc_pos_cnt(data.pos_cnt, data.pos);
 		data.move_made[data.ply] = move;
 		tt_prefetch();
-		int score = -negamax(params->depth - 1, -beta, -alpha, &data, &info, params);
+		int score = -negamax(params->depth - 1, -beta, -alpha, &data,
+		                     &info, params);
 		dec_pos_cnt(data.pos_cnt, data.pos);
 		move_undo(data.pos, move);
 
@@ -645,7 +660,8 @@ static struct result search(const struct parameters *params)
 			alpha = score;
 			result.best = move;
 		}
-		if (params->mate && alpha == INFINITE && info.mate == params->mate) {
+		if (params->mate && alpha == INFINITE &&
+		    info.mate == params->mate) {
 			result.found_mate = true;
 			result.best = move;
 			break;
@@ -662,7 +678,8 @@ static struct result search(const struct parameters *params)
 	info.nps = (long long)round(nps);
 	info.time = (long long)round(dt);
 	info.cp = alpha;
-	info.flags = INFO_FLAG_DEPTH | INFO_FLAG_NODES | INFO_FLAG_NPS | INFO_FLAG_TIME;
+	info.flags = INFO_FLAG_DEPTH | INFO_FLAG_NODES | INFO_FLAG_NPS |
+	             INFO_FLAG_TIME;
 	if (alpha == INFINITE)
 		info.flags |= INFO_FLAG_MATE;
 	else
