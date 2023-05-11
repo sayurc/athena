@@ -57,6 +57,7 @@ struct search_settings {
 	long long nodes;
 	long long time[2];
 	long long inc[2];
+	long long movetime;
 	void (*best_move_sender)(Move);
 	void (*info_sender)(const struct info *);
 };

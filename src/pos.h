@@ -99,6 +99,7 @@ typedef enum castling_side {
 struct position;
 typedef struct position Position;
 
+int pos_get_phase(const Position *pos);
 bool pos_equal(const Position *pos1, const Position *pos2);
 void pos_print(const Position *pos);
 void pos_decrement_fullmove_counter(Position *pos);

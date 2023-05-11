@@ -365,6 +365,9 @@ static void go(void)
 	arg->settings.infinite = true;
 	arg->settings.depth = INT_MAX;
 	arg->settings.nodes = LLONG_MAX;
+	arg->settings.time[COLOR_WHITE] = arg->settings.time[COLOR_BLACK] = 0;
+	arg->settings.inc[COLOR_WHITE] = arg->settings.inc[COLOR_BLACK] = 0;
+	arg->settings.movetime = 0;
 	arg->settings.mate = 0;
 	arg->settings.perft = 0;
 
@@ -400,6 +403,8 @@ static void go(void)
 				arg->settings.inc[COLOR_BLACK] = x;
 			} else if (!strcmp(str, "movestogo")) {
 				arg->settings.movestogo = x;
+			} else if (!strcmp(str, "movetime")) {
+				arg->settings.movetime = x;
 			} else if (!strcmp(str, "perft")) {
 				arg->settings.perft = x;
 			}

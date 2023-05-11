@@ -482,42 +482,10 @@ static int compute_material(const Position *pos)
 	return material;
 }
 
-/*
- * This function returns a number between 0 and 256 representing the game phase
- * where 0 is the initial phase and 256 is the final phase. This approach of
- * representing the game with several phases prevents evaluation discontinuity.
- */
-int eval_get_phase(const Position *pos)
-{
-	const int weights[] = {
-		[PIECE_TYPE_PAWN] = 0, [PIECE_TYPE_KNIGHT] = 1,
-		[PIECE_TYPE_BISHOP] = 1, [PIECE_TYPE_ROOK] = 2,
-		[PIECE_TYPE_QUEEN] = 4
-	};
-	const int neutral = 16 * weights[PIECE_TYPE_PAWN  ] +
-	              4  * weights[PIECE_TYPE_KNIGHT] +
-	              4  * weights[PIECE_TYPE_BISHOP] +
-	              4  * weights[PIECE_TYPE_ROOK  ] +
-	              2  * weights[PIECE_TYPE_QUEEN ];
-
-	int phase = neutral;
-
-	for (Color c = COLOR_WHITE; c <= COLOR_BLACK; ++c) {
-		for (PieceType pt = PIECE_TYPE_PAWN; pt <= PIECE_TYPE_QUEEN; ++pt) {
-			Piece piece = pos_make_piece(pt, c);
-			int num = pos_get_number_of_pieces(pos, piece);
-			phase -= num * weights[pt];
-		}
-	}
-	phase = (256 * phase + (neutral / 2)) / neutral;
-
-	return phase;
-}
-
 int eval_evaluate(const Position *pos)
 {
 	const Color color = pos_get_side_to_move(pos);
-	const int phase = eval_get_phase(pos);
+	const int phase = pos_get_phase(pos);
 
 	struct score score = {0, 0};
 	for (Square sq = A1; sq <= H8; ++sq) {

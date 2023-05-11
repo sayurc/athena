@@ -293,6 +293,39 @@ static size_t parse_fen(Position *pos, const char *fen)
 }
 
 /*
+ * This function returns a number between 0 and 256 representing the game phase
+ * where 0 is the initial phase and 256 is the final phase. This approach of
+ * representing the game with several phases prevents evaluation discontinuity.
+ */
+int pos_get_phase(const Position *pos)
+{
+	const int weights[] = {
+		[PIECE_TYPE_PAWN] = 0, [PIECE_TYPE_KNIGHT] = 1,
+		[PIECE_TYPE_BISHOP] = 1, [PIECE_TYPE_ROOK] = 2,
+		[PIECE_TYPE_QUEEN] = 4
+	};
+	const int neutral = 16 * weights[PIECE_TYPE_PAWN  ] +
+	              4  * weights[PIECE_TYPE_KNIGHT] +
+	              4  * weights[PIECE_TYPE_BISHOP] +
+	              4  * weights[PIECE_TYPE_ROOK  ] +
+	              2  * weights[PIECE_TYPE_QUEEN ];
+
+	int phase = neutral;
+
+	for (Color c = COLOR_WHITE; c <= COLOR_BLACK; ++c) {
+		for (PieceType pt = PIECE_TYPE_PAWN; pt <= PIECE_TYPE_QUEEN;
+		     ++pt) {
+			Piece piece = pos_make_piece(pt, c);
+			int num = pos_get_number_of_pieces(pos, piece);
+			phase -= num * weights[pt];
+		}
+	}
+	phase = (256 * phase + (neutral / 2)) / neutral;
+
+	return phase;
+}
+
+/*
  * Returns true if two positions are the same and false otherwise. This is not
  * a full comparison of the positions in memory, it's supposed to be used for
  * enforcing the threefold repetition rule so it only compares the elements that

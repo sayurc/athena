@@ -67,6 +67,7 @@ struct parameters {
 	int mate;
 	int movestogo;
 	long long nodes;
+	bool limited_time;
 	struct timespec stop_time;
 	Position *pos;
 	Move *moves;
@@ -431,10 +432,18 @@ struct info *info, const struct parameters *params)
 static int negamax(int depth, int alpha, int beta, struct search_data *data,
 struct info *info, const struct parameters *params)
 {
+	struct timespec now;
+	timespec_get(&now, TIME_UTC);
 	pthread_mutex_lock(params->stop_mtx);
+	if (params->limited_time) {
+		if (now.tv_sec > params->stop_time.tv_sec ||
+		    (now.tv_sec == params->stop_time.tv_sec &&
+		     now.tv_nsec >= params->stop_time.tv_nsec))
+			*params->stop = true;
+	}
 	if (data->nodes >= params->nodes || data->ply > MAX_PLY)
 		*params->stop = true;
-	if (*params->stop || data->nodes >= params->nodes) {
+	if (*params->stop) {
 		pthread_mutex_unlock(params->stop_mtx);
 		return alpha;
 	}
@@ -698,6 +707,41 @@ static void perft(const struct parameters *params)
 }
 
 /*
+ * Receives a position and the total time left in milliseconds and returns the
+ * amount of time the search can use.
+ * 
+ * We need to divide the time we have available among the moves that will be
+ * played during the game, but the number of future moves depends on how many
+ * moves have already been played. Using the current game phase we can use a
+ * linear interpolation between the average number of moves for a full chess
+ * game and a safe minimum number of moves we always want to have available,
+ * then we can divide the time we have left by the interpolation value at the
+ * current phase to obtain the time we should spend on searching the next move.
+ */
+static long long compute_search_time(const Position *pos, long long time)
+{
+	const int phase = pos_get_phase(pos);
+	const double divisor = (5. * (256. - phase) + phase) / 32.;
+	const double search_time = time / divisor;
+	return (long long)search_time;
+}
+
+/*
+ * Adds time milliseconds to ts.
+ */
+static void add_time(struct timespec *ts, long long time)
+{
+	time_t sec = (time_t)floor(time / 1e3);
+	long nsec = (long)floor((time / 1e3 - sec) * 1e9);
+	ts->tv_sec += sec;
+	ts->tv_nsec += nsec;
+	if (ts->tv_nsec >= 10000000000L) {
+		++ts->tv_sec;
+		ts->tv_nsec %= 10000000000L;
+	}
+}
+
+/*
  * When stop is true or the maximum number of nodes is reached we return the
  * last best root move we calculated, ignoring everything that was calculated
  * after, because this iteration's search probably didn't finish.
@@ -737,19 +781,43 @@ void *search_run(void *data)
 		return NULL;
 	}
 
+	Color color = pos_get_side_to_move(arg->settings.pos);
+
+	struct parameters params;
+	params.pos = arg->settings.pos;
+	params.mate = arg->settings.mate;
+	params.movestogo = arg->settings.movestogo;
+	params.moves = arg->settings.moves;
+	params.num_moves = arg->settings.num_moves;
+	params.stop = arg->stop;
+	params.stop_mtx = arg->stop_mtx;
+	params.output = arg->settings.info_sender;
+	if (arg->settings.movetime) {
+		params.limited_time = true;
+
+		long long movetime = arg->settings.movetime;
+
+		timespec_get(&params.stop_time, TIME_UTC);
+		add_time(&params.stop_time, movetime);
+	} else if (arg->settings.time[color]) {
+		params.limited_time = true;
+
+		long long total_time = arg->settings.time[color];
+		if (arg->settings.movestogo == 1)
+			total_time += arg->settings.inc[color];
+
+		const long long search_time = compute_search_time(params.pos,
+		                                                  total_time);
+		timespec_get(&params.stop_time, TIME_UTC);
+		add_time(&params.stop_time, search_time);
+	} else {
+		params.limited_time = false;
+	}
+
 	Move best_move = 0;
 	for (int depth = 1; depth <= max_depth && nodes > 0; ++depth) {
-		struct parameters params;
 		params.depth = depth;
-		params.mate = arg->settings.mate;
-		params.movestogo = arg->settings.movestogo;
 		params.nodes = nodes;
-		params.pos = arg->settings.pos;
-		params.moves = arg->settings.moves;
-		params.num_moves = arg->settings.num_moves;
-		params.stop = arg->stop;
-		params.stop_mtx = arg->stop_mtx;
-		params.output = arg->settings.info_sender;
 
 		struct result result = search(&params);
 
@@ -763,7 +831,7 @@ void *search_run(void *data)
 		pthread_mutex_unlock(mtx);
 
 		best_move = result.best;
-		if (arg->settings.mate && result.found_mate)
+		if (params.mate && result.found_mate)
 			break;
 	}
 	arg->settings.best_move_sender(best_move);
