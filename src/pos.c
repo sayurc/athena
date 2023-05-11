@@ -141,7 +141,8 @@ static size_t parse_pieces(Position *pos, const char *str)
 
 		if (isdigit(ch)) {
 			int digit = ch - '0';
-			if (digit > 8 || digit < 1 || !digit || file + digit > 8)
+			if (digit > 8 || digit < 1 || !digit ||
+			    file + digit > 8)
 				return 0;
 			file += digit;
 		} else if (is_one_of("PNRBQKpnrbqk", ch)) {
@@ -193,7 +194,7 @@ static size_t parse_castling(Position *pos, const char *str)
 			++kcnt;
 			break;
 		case 'q':
-			pos_add_castling(pos, COLOR_BLACK,  CASTLING_SIDE_QUEEN);
+			pos_add_castling(pos, COLOR_BLACK, CASTLING_SIDE_QUEEN);
 			++qcnt;
 			break;
 		default:
@@ -336,7 +337,8 @@ bool pos_equal(const Position *pos1, const Position *pos2)
 	if (pos_get_side_to_move(pos1) != pos_get_side_to_move(pos2))
 		return false;
 	for (Color c = COLOR_WHITE; c <= COLOR_BLACK; ++c) {
-		for (CastlingSide s = CASTLING_SIDE_QUEEN; s <= CASTLING_SIDE_KING; ++s) {
+		for (CastlingSide s = CASTLING_SIDE_QUEEN;
+		     s <= CASTLING_SIDE_KING; ++s) {
 			const bool pos1_has = pos_has_castling_right(pos1, c, s);
 			const bool pos2_has = pos_has_castling_right(pos2, c, s);
 			if (pos1_has != pos2_has)
@@ -438,14 +440,16 @@ void pos_increment_fullmove_counter(Position *pos)
 
 void pos_remove_castling(Position *pos, Color c, CastlingSide side)
 {
-	pos->irr_states[pos->irr_state_idx].castling_rights_and_enpassant &= ~(1 << side <<
-	                                                                        2 * c);
+	const size_t idx = pos->irr_state_idx;
+	u8 *const ptr = &pos->irr_states[idx].castling_rights_and_enpassant;
+	*ptr &= ~(1 << side << 2 * c);
 }
 
 void pos_add_castling(Position *pos, Color c, CastlingSide side)
 {
-	pos->irr_states[pos->irr_state_idx].castling_rights_and_enpassant |= 1 << side <<
-	                                                    2 * c;
+	const size_t idx = pos->irr_state_idx;
+	u8 *const ptr = &pos->irr_states[idx].castling_rights_and_enpassant;
+	*ptr |= 1 << side << 2 * c;
 }
 
 void pos_flip_side_to_move(Position *pos)
@@ -458,7 +462,8 @@ void pos_flip_side_to_move(Position *pos)
 
 void pos_set_captured_piece(Position *pos, Piece piece)
 {
-	pos->irr_states[pos->irr_state_idx].captured_piece = piece;
+	const size_t idx = pos->irr_state_idx;
+	pos->irr_states[idx].captured_piece = piece;
 }
 
 /*
@@ -508,7 +513,8 @@ void pos_increment_halfmove_clock(Position *pos)
 
 void pos_unset_enpassant(Position *pos)
 {
-	pos->irr_states[pos->irr_state_idx].castling_rights_and_enpassant &= 0xf;
+	const size_t idx = pos->irr_state_idx;
+	pos->irr_states[idx].castling_rights_and_enpassant &= 0xf;
 }
 
 /*
@@ -516,9 +522,10 @@ void pos_unset_enpassant(Position *pos)
  */
 void pos_set_enpassant(Position *pos, File file)
 {
-	pos->irr_states[pos->irr_state_idx].castling_rights_and_enpassant &= 0x8f;
-	pos->irr_states[pos->irr_state_idx].castling_rights_and_enpassant |= 0x80;
-	pos->irr_states[pos->irr_state_idx].castling_rights_and_enpassant |= (file & 0x7) << 4;
+	const size_t idx = pos->irr_state_idx;
+	pos->irr_states[idx].castling_rights_and_enpassant &= 0x8f;
+	pos->irr_states[idx].castling_rights_and_enpassant |= 0x80;
+	pos->irr_states[idx].castling_rights_and_enpassant |= (file & 0x7) << 4;
 }
 
 Piece pos_get_captured_piece(const Position *pos)
@@ -528,8 +535,9 @@ Piece pos_get_captured_piece(const Position *pos)
 
 int pos_has_castling_right(const Position *pos, Color c, CastlingSide side)
 {
-	return (pos->irr_states[pos->irr_state_idx].castling_rights_and_enpassant &
-	        0x1 << side << 2 * c) != 0;
+	const size_t idx = pos->irr_state_idx;
+	u8 *const ptr = &pos->irr_states[idx].castling_rights_and_enpassant;
+	return (*ptr & 0x1 << side << 2 * c) != 0;
 }
 
 int pos_get_fullmove_counter(const Position *pos)
@@ -544,14 +552,18 @@ int pos_get_halfmove_clock(const Position *pos)
 
 int pos_enpassant_possible(const Position *pos)
 {
-	return pos->irr_states[pos->irr_state_idx].castling_rights_and_enpassant & 0x80;
+	const size_t idx = pos->irr_state_idx;
+	return pos->irr_states[idx].castling_rights_and_enpassant & 0x80;
 }
 
 Square pos_get_enpassant(const Position *pos)
 {
-	const File f = (pos->irr_states[pos->irr_state_idx].castling_rights_and_enpassant
-	                & 0x70) >> 4;
+	const size_t idx = pos->irr_state_idx;
+	u8 *const ptr = &pos->irr_states[idx].castling_rights_and_enpassant;
+
+	const File f = (*ptr & 0x70) >> 4;
 	const Rank r = pos->side_to_move == COLOR_WHITE ? RANK_6 : RANK_3;
+
 	return pos_file_rank_to_square(f, r);
 }
 
@@ -617,14 +629,17 @@ void pos_start_new_irreversible_state(Position *pos)
 	pos->irr_state_idx += 1;
 	if (pos->irr_state_idx == pos->irr_state_cap) {
 		pos->irr_state_cap += 256;
-		struct irreversible_state *new = realloc(pos->irr_states, pos->irr_state_cap * sizeof(struct irreversible_state));
+		const size_t size = pos->irr_state_cap *
+		                    sizeof(struct irreversible_state);
+		struct irreversible_state *new = realloc(pos->irr_states, size);
 		if (!new) {
 			fprintf(stderr, "Could not allocate memory.\n");
 			exit(1);
 		}
 		pos->irr_states = new;
 	}
-	pos->irr_states[pos->irr_state_idx] = pos->irr_states[pos->irr_state_idx - 1];
+	size_t idx = pos->irr_state_idx;
+	pos->irr_states[idx] = pos->irr_states[idx - 1];
 }
 
 Position *pos_copy(const Position *pos)
@@ -636,12 +651,14 @@ Position *pos_copy(const Position *pos)
 	}
 	memcpy(copy, pos, sizeof(Position));
 
-	copy->irr_states = malloc(pos->irr_state_cap * sizeof(struct irreversible_state));
+	copy->irr_states = malloc(pos->irr_state_cap *
+	                          sizeof(struct irreversible_state));
 	if (!copy->irr_states) {
 		fprintf(stderr, "Could not allocate memory.\n");
 		exit(1);
 	}
-	memcpy(copy->irr_states, pos->irr_states, copy->irr_state_cap * sizeof(struct irreversible_state));
+	memcpy(copy->irr_states, pos->irr_states, copy->irr_state_cap *
+	       sizeof(struct irreversible_state));
 
 	return copy;
 }
@@ -666,7 +683,8 @@ Position *pos_create(const char *fen)
 	}
 
 	pos->irr_state_cap = 256;
-	pos->irr_states = malloc(pos->irr_state_cap * sizeof(struct irreversible_state));
+	pos->irr_states = malloc(pos->irr_state_cap *
+	                         sizeof(struct irreversible_state));
 	if (!pos->irr_states) {
 		fprintf(stderr, "Could not allocate memory.\n");
 		exit(1);

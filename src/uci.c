@@ -39,7 +39,7 @@
 
 static pthread_t search_thread;
 static bool started_search = false;
-static bool newgame_has_been_run = false;
+static bool newgame_has_been_sent = false;
 static Position *current_position = NULL;
 static Move *move_list = NULL;
 int num_moves = 0;
@@ -116,12 +116,14 @@ static void move_to_lan(char *lan, Move move)
 	lan[1] = rank_to_char[rank1];
 	lan[2] = file_to_char[file2];
 	lan[3] = rank_to_char[rank2];
-	if (type >= MOVE_KNIGHT_PROMOTION && type <= MOVE_QUEEN_PROMOTION)
+	if (type >= MOVE_KNIGHT_PROMOTION && type <= MOVE_QUEEN_PROMOTION) {
 		lan[4] = promotion_to_char[type];
-	else if (type >= MOVE_KNIGHT_PROMOTION_CAPTURE && type <= MOVE_QUEEN_PROMOTION_CAPTURE)
+	} else if (type >= MOVE_KNIGHT_PROMOTION_CAPTURE &&
+	           type <= MOVE_QUEEN_PROMOTION_CAPTURE) {
 		lan[4] = promotion_to_char[type - 4];
-	else
+	} else {
 		lan[4] = '\0';
+	}
 	lan[5] = '\0';
 }
 
@@ -152,7 +154,8 @@ static Move lan_to_move(const char *lan, const Position *pos, bool *success)
  * Convert a string to a value for an option and return 0 on success, 1 if the
  * option was not found and 2 if str is not a valid value for the option.
  */
-static int str_to_option_value(union option_value *value, const char *name, const char *str)
+static int str_to_option_value(union option_value *value, const char *name,
+                               const char *str)
 {
 	const struct option *op;
 
@@ -436,15 +439,15 @@ static void ucinewgame(void)
 	search_finish();
 	movegen_init();
 	search_init();
-	newgame_has_been_run = true;
+	newgame_has_been_sent = true;
 }
 
 static void position(char *split_str)
 {
-	if (!newgame_has_been_run)
+	if (!newgame_has_been_sent)
 		ucinewgame();
-	const char *startpos = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-
+	const char *startpos = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w "
+	                       "KQkq - 0 1";
 	Position *pos = NULL;
 
 	const char *token = strtok(NULL, " ");
@@ -560,7 +563,8 @@ static char *read_words_until_equal(const char *str, bool *allocation_error, ...
 	size_t name_len = 0;
 	*allocation_error = false;
 	char *joined = NULL, *word = NULL;
-	for (word = strtok(NULL, " "); word && strcmp(word, str); word = strtok(NULL, " ")) {
+	for (word = strtok(NULL, " "); word && strcmp(word, str);
+	     word = strtok(NULL, " ")) {
 		const size_t word_len = strlen(word);
 		name_len += word_len + 1;
 		char *tmp = realloc(joined, name_len);
@@ -591,7 +595,8 @@ static void setoption(void)
 	}
 
 	bool has_value = false, allocation_error = false;
-	char *name = read_words_until_equal("value", &allocation_error, &has_value);
+	char *name = read_words_until_equal("value", &allocation_error,
+	                                    &has_value);
 	if (allocation_error) {
 		fprintf(stderr, "Could not allocate memory.\n");
 		return;
@@ -629,7 +634,8 @@ static void setoption(void)
 		free(value_str);
 		return;
 	case 2:
-		fprintf(stderr, "%s is not a valid value for %s\n", value_str, name);
+		fprintf(stderr, "%s is not a valid value for %s\n", value_str,
+		        name);
 		free(name);
 		free(value_str);
 		return;

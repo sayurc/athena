@@ -80,9 +80,12 @@ u64 tt_hash(const Position *pos)
 
 	u8 rights = 0;
 	for (Color color = COLOR_WHITE; color <= COLOR_BLACK; ++color) {
-		const bool has_king_right = pos_has_castling_right(pos, color, CASTLING_SIDE_KING);
-		const bool has_queen_right = pos_has_castling_right(pos, color, CASTLING_SIDE_QUEEN);
-		rights = ((has_king_right << 1) | has_queen_right) << (2 * color);
+		const bool has_king_right = pos_has_castling_right(pos, color,
+		                            CASTLING_SIDE_KING);
+		const bool has_queen_right = pos_has_castling_right(pos, color,
+		                             CASTLING_SIDE_QUEEN);
+		rights = (has_king_right << 1) | has_queen_right;
+		rights <<= (2 * color);
 	}
 	key ^= ptr[rights];
 	ptr += NUM_CASTLING_RIGHTS;
@@ -122,7 +125,8 @@ void tt_store(const NodeData *data)
 	transposition_table.ptr[key] = *data;
 }
 
-void tt_entry_init(NodeData *data, int score, int depth, NodeType type, Move best_move, const Position *pos)
+void tt_entry_init(NodeData *data, int score, int depth, NodeType type,
+                   Move best_move, const Position *pos)
 {
 	data->score = score;
 	data->depth = depth;
@@ -145,7 +149,8 @@ void tt_init(void)
 	init_hash();
 
 	transposition_table.capacity = 8191;
-	transposition_table.ptr = calloc(transposition_table.capacity, sizeof(NodeData));
+	transposition_table.ptr = calloc(transposition_table.capacity,
+	                                 sizeof(NodeData));
 	if (!transposition_table.ptr) {
 		fprintf(stderr, "Could not allocate memory");
 		exit(1);
