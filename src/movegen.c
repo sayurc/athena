@@ -151,30 +151,79 @@ static u64 move_northeast(u64 bb, int n)
 	return bb;
 }
 
+static u64 get_north_ray(Square sq)
+{
+	return U64(0x0101010101010100) << sq;
+}
+
+static u64 get_south_ray(Square sq)
+{
+	return U64(0x0080808080808080) >> (sq ^ 63);
+}
+
+static u64 get_northeast_ray(Square sq)
+{
+	return move_east(U64(0x8040201008040200), pos_get_file_of_square(sq)) <<
+	(pos_get_rank_of_square(sq) * 8);
+}
+
+static u64 get_northwest_ray(Square sq)
+{
+	u64 ray = move_west(U64(0x0102040810204000),
+	                    7 - pos_get_file_of_square(sq));
+	ray <<= pos_get_rank_of_square(sq) * 8;
+	return ray;
+}
+
+static u64 get_southeast_ray(Square sq)
+{
+	u64 ray = move_east(U64(0x0002040810204080), pos_get_file_of_square(sq));
+	ray >>= (7 - pos_get_rank_of_square(sq)) * 8;
+	return ray;
+}
+
+static u64 get_southwest_ray(Square sq)
+{
+	u64 ray = move_west(U64(0x0040201008040201),
+	                    7 - pos_get_file_of_square(sq));
+	ray >>= (7 - pos_get_rank_of_square(sq)) * 8;
+	return ray;
+}
+
+static u64 get_east_ray(Square sq)
+{
+	return 2 * ((1ull << (sq | 7)) - (1ull << sq));
+}
+
+static u64 get_west_ray(Square sq)
+{
+	return (1ull << sq) - (1ull << (sq & 56));
+}
+
 static void init_rays(void)
 {
 	for (Square sq = A1; sq <= H8; ++sq) {
-		ray_bitboards[NORTH][sq]     = U64(0x0101010101010100) << sq;
-		ray_bitboards[SOUTH][sq]     = U64(0x0080808080808080) >> (sq ^ 63);
-		ray_bitboards[NORTHEAST][sq] = move_east(U64(0x8040201008040200), pos_get_file_of_square(sq)) << (pos_get_rank_of_square(sq) * 8);
-		ray_bitboards[NORTHWEST][sq] = move_west(U64(0x0102040810204000), 7 - pos_get_file_of_square(sq)) << ((pos_get_rank_of_square(sq)) * 8);
-		ray_bitboards[SOUTHEAST][sq] = move_east(U64(0x0002040810204080), pos_get_file_of_square(sq)) >> ((7 - pos_get_rank_of_square(sq)) * 8);
-		ray_bitboards[SOUTHWEST][sq] = move_west(U64(0x0040201008040201), 7 - pos_get_file_of_square(sq)) >> ((7 - pos_get_rank_of_square(sq)) * 8);
-		ray_bitboards[EAST][sq]      = 2 * ((1ull << (sq | 7)) - (1ull << sq));
-		ray_bitboards[WEST][sq]      =      (1ull << sq)       - (1ull << (sq & 56));
+		ray_bitboards[NORTH][sq]     = get_north_ray(sq);
+		ray_bitboards[SOUTH][sq]     = get_south_ray(sq);
+		ray_bitboards[NORTHEAST][sq] = get_northeast_ray(sq);
+		ray_bitboards[NORTHWEST][sq] = get_northwest_ray(sq);
+		ray_bitboards[SOUTHEAST][sq] = get_southeast_ray(sq);
+		ray_bitboards[SOUTHWEST][sq] = get_southwest_ray(sq);
+		ray_bitboards[EAST][sq]      = get_east_ray(sq);
+		ray_bitboards[WEST][sq]      = get_west_ray(sq);
 	}
 }
 
 /*
  * This is a slow approach to generate ray attacks for sliding pieces, it uses
  * a generalized bit scan to share the same code for all directions. The
- * dit_bit values are used to ensure an empty board is never scanned, it uses
+ * dir_bit values are used to ensure an empty board is never scanned, it uses
  * the first square for negative directions and the last square for positive
  * ones. The reason is that these squares are going to be returned by the scan
  * function and the ray_bitboards table will return an empty ray bitboard for
- * square 0 when the direction is negative and for square 63 when the direction
- * is positive, since there are no squares to those directions beyond those two
- * squares.
+ * square 0 when the direction is south, west, southeast or southwest and for
+ * square 63 when the direction is north, east, notheast or northwest, since
+ * there are no squares to those directions beyond those two squares.
  */
 static u64 gen_ray_attacks(u64 occ, Direction dir, Square sq)
 {
@@ -262,9 +311,11 @@ static void init_magics_with(SlidingAttackGenerator *attack_generator,
 		const File f = pos_get_file_of_square(sq);
 		const Rank r = pos_get_rank_of_square(sq);
 
-		const u64 edges  = ((file_bitboards[FILE_A] | file_bitboards[FILE_H]) &
-				    ~file_bitboards[f]) |
-		                   ((rank_bitboards[RANK_1] | rank_bitboards[RANK_8]) &
+		const u64 edges  = ((file_bitboards[FILE_A] |
+		                     file_bitboards[FILE_H]) &
+		                    ~file_bitboards[f]) |
+		                   ((rank_bitboards[RANK_1] |
+		                     rank_bitboards[RANK_8]) &
 		                    ~rank_bitboards[r]);
 
 		Magic *const m = &magics[sq];
@@ -418,7 +469,8 @@ static void add_move(MoveList *list, Move move)
 {
 	if (list->len == list->capacity) {
 		list->capacity <<= 2;
-		Move *const tmp = realloc(list->ptr, list->capacity * sizeof(Move));
+		Move *const tmp = realloc(list->ptr,
+		                          list->capacity * sizeof(Move));
 		if (!tmp) {
 			fprintf(stderr, "Could not allocate memory.");
 			exit(1);
@@ -429,7 +481,8 @@ static void add_move(MoveList *list, Move move)
 	++list->len;
 }
 
-static void add_pawn_moves(MoveList *restrict list, const Position *restrict pos)
+static void add_pawn_moves(MoveList *restrict list,
+                           const Position *restrict pos)
 {
 	const Color color = pos_get_side_to_move(pos);
 	const Piece piece = pos_make_piece(PIECE_TYPE_PAWN,
@@ -494,7 +547,8 @@ static void add_pawn_moves(MoveList *restrict list, const Position *restrict pos
 	}
 }
 
-static void add_king_moves(MoveList *restrict list, const Position *restrict pos)
+static void add_king_moves(MoveList *restrict list,
+                           const Position *restrict pos)
 {
 	const Color color = pos_get_side_to_move(pos);
 	const Square from = pos_get_king_square(pos, color);
@@ -541,7 +595,8 @@ static void add_king_moves(MoveList *restrict list, const Position *restrict pos
 	}
 }
 
-static inline void add_moves(MoveList *restrict list, PieceType piece_type, const Position *restrict pos)
+static inline void add_moves(MoveList *restrict list, PieceType piece_type,
+                             const Position *restrict pos)
 {
 	const Color color = pos_get_side_to_move(pos);
 	const Piece piece = pos_make_piece(piece_type, color);
@@ -586,7 +641,8 @@ static inline void add_moves(MoveList *restrict list, PieceType piece_type, cons
 	}
 }
 
-int movegen_get_number_of_pseudo_legal_moves(PieceType piece_type, Color c, const Position *pos)
+int movegen_get_number_of_pseudo_legal_moves(PieceType piece_type, Color c,
+                                             const Position *pos)
 {
 	const Piece piece = pos_make_piece(piece_type, c);
 	const u64 occ = pos_get_color_bitboard(pos, c)
@@ -687,7 +743,8 @@ bool movegen_is_square_attacked(Square sq, Color by_side, const Position *pos)
  * (that is, moves that may put the king in check), or NULL if no moves are
  * possible.
  */
-Move *movegen_get_pseudo_legal_moves(const Position *restrict pos, size_t *restrict len)
+Move *movegen_get_pseudo_legal_moves(const Position *restrict pos,
+                                     size_t *restrict len)
 {
 	const size_t initial_capacity = 2 << 8;
 	MoveList list;

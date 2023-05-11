@@ -70,9 +70,11 @@ else if (type == MOVE_CAPTURE)\
 else if (type == MOVE_EP_CAPTURE)\
 	do_or_undo##_ep_capture(pos, from, to, piece);\
 else if (type >= MOVE_KNIGHT_PROMOTION && type <= MOVE_QUEEN_PROMOTION)\
-	do_or_undo##_promotion(pos, from, to, promotion_table[color][type - 6], 0);\
+	do_or_undo##_promotion(pos, from, to, promotion_table[color][type - 6],\
+	                       0);\
 else if (type >= MOVE_KNIGHT_PROMOTION_CAPTURE)\
-	do_or_undo##_promotion(pos, from, to, promotion_table[color][type - 10], 1);\
+	do_or_undo##_promotion(pos, from, to,\
+	                       promotion_table[color][type - 10], 1);\
 \
 if (choice_##do_or_undo == choice_undo)\
 	pos_backtrack_irreversible_state(pos);\
@@ -85,14 +87,19 @@ static void do_promotion(Position *pos, Square from, Square to,
 
 	if (is_capture) {
 		const Piece captured_piece = pos_get_piece_at(pos, to);
-		if (captured_piece == PIECE_WHITE_ROOK && to == A1)
-			pos_remove_castling(pos, COLOR_WHITE, CASTLING_SIDE_QUEEN);
-		else if (captured_piece == PIECE_WHITE_ROOK && to == H1)
-			pos_remove_castling(pos, COLOR_WHITE, CASTLING_SIDE_KING);
-		else if (captured_piece == PIECE_BLACK_ROOK && to == A8)
-			pos_remove_castling(pos, COLOR_BLACK, CASTLING_SIDE_QUEEN);
-		else if (captured_piece == PIECE_BLACK_ROOK && to == H8)
-			pos_remove_castling(pos, COLOR_BLACK, CASTLING_SIDE_KING);
+		if (captured_piece == PIECE_WHITE_ROOK && to == A1) {
+			pos_remove_castling(pos, COLOR_WHITE,
+			                    CASTLING_SIDE_QUEEN);
+		} else if (captured_piece == PIECE_WHITE_ROOK && to == H1) {
+			pos_remove_castling(pos, COLOR_WHITE,
+			                    CASTLING_SIDE_KING);
+		} else if (captured_piece == PIECE_BLACK_ROOK && to == A8) {
+			pos_remove_castling(pos, COLOR_BLACK,
+			                    CASTLING_SIDE_QUEEN);
+		} else if (captured_piece == PIECE_BLACK_ROOK && to == H8) {
+			pos_remove_castling(pos, COLOR_BLACK,
+			                    CASTLING_SIDE_KING);
+		}
 		pos_reset_halfmove_clock(pos);
 		pos_set_captured_piece(pos, pos_get_piece_at(pos, to));
 		pos_remove_piece(pos, to);
@@ -225,28 +232,38 @@ static void do_capture(Position *pos, Square from, Square to, Piece piece)
 		pos_remove_castling(pos, piece_color, CASTLING_SIDE_QUEEN);
 		break;
 	case PIECE_TYPE_ROOK:
-		if (piece_color == COLOR_WHITE && from == A1)
-			pos_remove_castling(pos, piece_color, CASTLING_SIDE_QUEEN);
-		else if (piece_color == COLOR_WHITE && from == H1)
-			pos_remove_castling(pos, piece_color, CASTLING_SIDE_KING);
-		else if (piece_color == COLOR_BLACK && from == A8)
-			pos_remove_castling(pos, piece_color, CASTLING_SIDE_QUEEN);
-		else if (piece_color == COLOR_BLACK && from == H8)
-			pos_remove_castling(pos, piece_color, CASTLING_SIDE_KING);
+		if (piece_color == COLOR_WHITE && from == A1) {
+			pos_remove_castling(pos, piece_color,
+			                    CASTLING_SIDE_QUEEN);
+		} else if (piece_color == COLOR_WHITE && from == H1) {
+			pos_remove_castling(pos, piece_color,
+			                    CASTLING_SIDE_KING);
+		} else if (piece_color == COLOR_BLACK && from == A8) {
+			pos_remove_castling(pos, piece_color,
+			                    CASTLING_SIDE_QUEEN);
+		} else if (piece_color == COLOR_BLACK && from == H8) {
+			pos_remove_castling(pos, piece_color,
+			                    CASTLING_SIDE_KING);
+		}
 		break;
 	default:
 		break;
 	}
 
 	if (pos_get_piece_type(captured_piece) == PIECE_TYPE_ROOK) {
-		if (captured_piece == PIECE_WHITE_ROOK && to == A1)
-			pos_remove_castling(pos, COLOR_WHITE, CASTLING_SIDE_QUEEN);
-		else if (captured_piece == PIECE_WHITE_ROOK && to == H1)
-			pos_remove_castling(pos, COLOR_WHITE, CASTLING_SIDE_KING);
-		else if (captured_piece == PIECE_BLACK_ROOK && to == A8)
-			pos_remove_castling(pos, COLOR_BLACK, CASTLING_SIDE_QUEEN);
-		else if (captured_piece == PIECE_BLACK_ROOK && to == H8)
-			pos_remove_castling(pos, COLOR_BLACK, CASTLING_SIDE_KING);
+		if (captured_piece == PIECE_WHITE_ROOK && to == A1) {
+			pos_remove_castling(pos, COLOR_WHITE,
+			                    CASTLING_SIDE_QUEEN);
+		} else if (captured_piece == PIECE_WHITE_ROOK && to == H1) {
+			pos_remove_castling(pos, COLOR_WHITE,
+			                    CASTLING_SIDE_KING);
+		} else if (captured_piece == PIECE_BLACK_ROOK && to == A8) {
+			pos_remove_castling(pos, COLOR_BLACK,
+			                    CASTLING_SIDE_QUEEN);
+		} else if (captured_piece == PIECE_BLACK_ROOK && to == H8) {
+			pos_remove_castling(pos, COLOR_BLACK,
+			                    CASTLING_SIDE_KING);
+		}
 	}
 
 	if (piece_color == COLOR_BLACK)
