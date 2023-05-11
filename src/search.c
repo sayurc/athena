@@ -38,7 +38,7 @@
 #include "search.h"
 
 #define MAX_DEPTH 128
-#define MAX_PLY 256
+#define MAX_PLY (2 * MAX_DEPTH)
 #define POS_CNT_TABLE_LEN 8191
 #define MAX_KILLER_MOVES 2
 
