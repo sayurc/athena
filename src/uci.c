@@ -78,11 +78,6 @@ struct option {
 	{.name = "Ponder", .type = OPTION_TYPE_BOOLEAN, .default_value.boolean = false, .value.boolean = false},
 };
 
-/*
- * I used the same promotion_to_char table for both promotions and promotions
- * with captures because the number of promotions with captures are the same
- * as the number of promotions and they are 4 numbers apart.
- */
 static void move_to_lan(char *lan, Move move)
 {
 	const char file_to_char[] = {
@@ -93,9 +88,15 @@ static void move_to_lan(char *lan, Move move)
 		[RANK_1] = '1', [RANK_2] = '2', [RANK_3] = '3', [RANK_4] = '4',
 		[RANK_5] = '5', [RANK_6] = '6', [RANK_7] = '7', [RANK_8] = '8',
 	};
-	const char promotion_to_char[] = {
+	const char promo_to_char[] = {
 		[MOVE_KNIGHT_PROMOTION] = 'n', [MOVE_ROOK_PROMOTION ] = 'r',
 		[MOVE_BISHOP_PROMOTION] = 'b', [MOVE_QUEEN_PROMOTION] = 'q',
+	};
+	const char promo_cap_to_char[] = {
+		[MOVE_KNIGHT_PROMOTION_CAPTURE] = 'n',
+		[MOVE_BISHOP_PROMOTION_CAPTURE] = 'b',
+		[MOVE_ROOK_PROMOTION_CAPTURE  ] = 'r',
+		[MOVE_QUEEN_PROMOTION_CAPTURE ] = 'q',
 	};
 
 	if (!move) {
@@ -117,10 +118,10 @@ static void move_to_lan(char *lan, Move move)
 	lan[2] = file_to_char[file2];
 	lan[3] = rank_to_char[rank2];
 	if (type >= MOVE_KNIGHT_PROMOTION && type <= MOVE_QUEEN_PROMOTION) {
-		lan[4] = promotion_to_char[type];
+		lan[4] = promo_to_char[type];
 	} else if (type >= MOVE_KNIGHT_PROMOTION_CAPTURE &&
 	           type <= MOVE_QUEEN_PROMOTION_CAPTURE) {
-		lan[4] = promotion_to_char[type - 4];
+		lan[4] = promo_cap_to_char[type];
 	} else {
 		lan[4] = '\0';
 	}
@@ -188,7 +189,8 @@ integer:
 	errno = 0;
 	char *endptr;
 	long n = strtol(str, &endptr, 10);
-	if (errno == ERANGE || endptr == str || *endptr != '\0' || n < op->min || n > op->max)
+	if (errno == ERANGE || endptr == str || *endptr != '\0' ||
+	    n < op->min || n > op->max)
 		return 2;
 	value->integer = n;
 	return 0;
@@ -442,7 +444,43 @@ static void ucinewgame(void)
 	newgame_has_been_sent = true;
 }
 
-static void position(char *split_str)
+static Move *parse_moves(Position *pos, size_t *len)
+{
+	size_t num = 0;
+	size_t capacity_moves = 0;
+	Move *moves = NULL;
+	for (char *move = strtok(NULL, " "); move; move = strtok(NULL, " ")) {
+		const size_t move_len = strlen(move);
+		if (move_len > max_lan_len) {
+			free(moves);
+			return NULL;
+		}
+		++num;
+		if (num > capacity_moves) {
+			capacity_moves += 128;
+			Move *tmp = realloc(moves, capacity_moves);
+			if (!tmp) {
+				free(moves);
+				return NULL;
+			}
+			moves = tmp;
+		}
+		bool success;
+		moves[num - 1] = lan_to_move(move, pos, &success);
+		if (!success) {
+			free(moves);
+			return NULL;
+		}
+
+		/* The position after each move is stored in the list. */
+		move_do(pos, moves[num - 1]);
+	}
+
+	*len = num;
+	return moves;
+}
+
+static void position(void)
 {
 	if (!newgame_has_been_sent)
 		ucinewgame();
@@ -478,17 +516,15 @@ static void position(char *split_str)
 				fen[fen_len - 1] = ' ';
 			} else {
 				fen[fen_len - 1] = '\0';
-				/* Remove the extra 1 that was added in the
-				 * beginning when it is for '\0'. */
+				/* Remove the extra length that was added when
+				 * it is reserved for '\0'. */
 				--fen_len;
 			}
 		}
 		pos = pos_create(fen);
-		if (!pos) {
-			free(fen);
-			return;;
-		}
 		free(fen);
+		if (!pos)
+			return;
 	} else {
 		return;
 	}
@@ -498,46 +534,23 @@ static void position(char *split_str)
 		current_position = pos;
 		return;
 	}
-	if (strcmp(token, "moves"))
+	if (strcmp(token, "moves")) {
+		pos_destroy(pos);
 		return;
-
-	size_t num = 0;
-	size_t capacity_moves = 0;
-	Move *moves = NULL;
-	for (char *move = strtok(NULL, " "); move; move = strtok(NULL, " ")) {
-		const size_t move_len = strlen(move);
-		if (move_len > max_lan_len) {
-			free(split_str);
-			return;
-		}
-		++num;
-		if (num > capacity_moves) {
-			capacity_moves += 128;
-			Move *tmp = realloc(moves, capacity_moves);
-			if (!tmp) {
-				free(moves);
-				return;
-			}
-			moves = tmp;
-		}
-		bool success;
-		moves[num - 1] = lan_to_move(move, pos, &success);
-		if (!success) {
-			free(moves);
-			return;
-		}
-
-		/* The position after each move is stored in the list. */
-		move_do(pos, moves[num - 1]);
 	}
 
 	if (current_position)
 		pos_destroy(current_position);
 	if (move_list)
 		free(move_list);
+	size_t len;
+	move_list = parse_moves(pos, &len);
+	if (!move_list) {
+		pos_destroy(pos);
+		return;
+	}
 	current_position = pos;
-	move_list = moves;
-	num_moves = num;
+	num_moves = len;
 }
 
 static void isready(void)
@@ -664,7 +677,7 @@ static void uci(void)
 }
 
 /*
- * Return true normally and false when the "quit" command is used.
+ * Returns true normally and false when the "quit" command is used.
  */
 bool uci_interpret(const char *str)
 {
@@ -675,6 +688,11 @@ bool uci_interpret(const char *str)
 	strcpy(split_str, str);
 	char *const cmd = strtok(split_str, " ");
 
+	if (!cmd) {
+		free(split_str);
+		return ret;
+	}
+
 	if (!strcmp(cmd, "uci")) {
 		uci();
 	} else if (!strcmp(cmd, "isready")) {
@@ -684,7 +702,7 @@ bool uci_interpret(const char *str)
 	} else if (!strcmp(cmd, "ucinewgame")) {
 		ucinewgame();
 	} else if (!strcmp(cmd, "position")) {
-		position(split_str);
+		position();
 	} else if (!strcmp(cmd, "go")) {
 		go();
 	} else if (!strcmp(cmd, "stop")) {
@@ -699,19 +717,24 @@ bool uci_interpret(const char *str)
 }
 
 /*
- * Read a UCI message from stdin and return it, or return NULL if the message is
- * invalid or an error occurred.
+ * Reads a UCI message from stdin and return it, or return NULL if the message
+ * is invalid or an error occurred. In both cases EOF is set to false. eof is
+ * set to true and returns NULL if EOF is read.
  */
-char *uci_receive(void)
+char *uci_receive(bool *eof)
 {
 	size_t max_len = BUFSIZ;
 	char *str = malloc(max_len + 1);
 
+	*eof = false;
 	size_t i = 0;
 	char ch = '\0';
-	for (ch = fgetc(stdin); ch != EOF; ch = fgetc(stdin)) {
-		if (ch == '\n')
-			break;
+	for (ch = fgetc(stdin); ch != '\n'; ch = fgetc(stdin)) {
+		if (ch == EOF) {
+			*eof = true;
+			free(str);
+			return NULL;
+		}
 		if (i == max_len) {
 			max_len += BUFSIZ;
 			char *const tmp = realloc(str, max_len + 1);
@@ -725,12 +748,11 @@ char *uci_receive(void)
 		str[i] = ch;
 		++i;
 	}
-	if (ch != '\n') {
-		fprintf(stderr, "Invalid UCI string.\n");
+	str[i] = '\0';
+	if (!strlen(str)) {
 		free(str);
 		return NULL;
 	}
-	str[i] = '\0';
 
 	return str;
 }
@@ -739,8 +761,13 @@ void uci_loop(void)
 {
 	bool quit = false;
 	while (!quit) {
-		char *str = uci_receive();
-		quit = !uci_interpret(str);
-		free(str);
+		bool eof = false;
+		char *str = uci_receive(&eof);
+		if (eof) {
+			quit = true;
+		} else if (str) {
+			quit = !uci_interpret(str);
+			free(str);
+		}
 	}
 }
