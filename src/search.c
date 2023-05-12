@@ -41,6 +41,7 @@
 #define MAX_PLY (2 * MAX_DEPTH)
 #define POS_CNT_TABLE_LEN 8191
 #define MAX_KILLER_MOVES 2
+#define AVERAGE_GAME_LENGTH 40
 
 struct search_data {
 	int ply;
@@ -725,20 +726,47 @@ static void perft(const struct parameters *params)
 
 /*
  * Receives a position and the total time left in milliseconds and returns the
- * amount of time the search can use.
+ * amount of time the search can use, also in milliseconds.
  * 
  * We need to divide the time we have available among the moves that will be
- * played during the game, but the number of future moves depends on how many
- * moves have already been played. Using the current game phase we can use a
- * linear interpolation between the average number of moves for a full chess
+ * played throughout the game, but the number of future moves depends on how
+ * many moves have already been played. Using the current game phase we can use
+ * a linear interpolation between the average number of moves for a full chess
  * game and a safe minimum number of moves we always want to have available,
  * then we can divide the time we have left by the interpolation value at the
  * current phase to obtain the time we should spend on searching the next move.
+ *
+ * If movestogo is set then we just use it instead of the average number of
+ * moves. In particular, if movestogo is 1 then we can use all the remaining
+ * time since the next move will start the next time control. Note, however,
+ * that it is not safe to actually use all the remaining time since the engine
+ * may take longer to finish calculating, therefore we can only use a portion of
+ * it.
+ * 
+ * It is clear that the more time we have the more time it is safe to use. For
+ * example, if we only have 1 second left using 99% of it is not safe since the
+ * engine would only have a buffer of less than 1 millisecond between detecting
+ * time is up and sending the move. The following mathematical function maps a
+ * time in milliseconds to a value between 0 and 1.
+ * 
+ * f(x) = (x / 1000)^1.1 / (x / 1000 + 1)^1.1
+ * 
+ * The division by 1000 effectively converts the time to seconds, scaling down
+ * the function. Obviously the final search time calculated might be 0, which
+ * means we're screwed and there's no time for search.
  */
-static long long compute_search_time(const Position *pos, long long time)
+static long long compute_search_time(const Position *pos, long long time, int movestogo)
 {
+	if (movestogo == 1) {
+		double factor = pow(time / 1000., 1.1);
+		factor /= pow(time / 1000. + 1., 1.1);
+		printf("time * factor = %f\n", time * factor);
+		return time * factor;
+	}
 	const int phase = pos_get_phase(pos);
-	const double divisor = (5. * (256. - phase) + phase) / 32.;
+	const size_t max = movestogo && movestogo < AVERAGE_GAME_LENGTH ?
+	                   movestogo : AVERAGE_GAME_LENGTH;
+	const double divisor = (max * (256 - phase) + 8 * phase) / 256;
 	const double search_time = time / divisor;
 	return (long long)search_time;
 }
@@ -819,12 +847,10 @@ void *search_run(void *data)
 	} else if (arg->settings.time[color]) {
 		params.limited_time = true;
 
-		long long total_time = arg->settings.time[color];
-		if (arg->settings.movestogo == 1)
-			total_time += arg->settings.inc[color];
+		long long total_time = arg->settings.time[color] + arg->settings.inc[color];
 
 		const long long search_time = compute_search_time(params.pos,
-		                                                  total_time);
+			total_time, arg->settings.movestogo);
 		timespec_get(&params.stop_time, TIME_UTC);
 		add_time(&params.stop_time, search_time);
 	} else {
