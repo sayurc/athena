@@ -493,15 +493,15 @@ static void position(void)
 		pos = pos_create(startpos);
 	} else if (token && !strcmp(token, "fen")) {
 		char *fen = NULL;
-		const size_t num_fen_parts = 6;
-		char *parts[num_fen_parts];
-		for (size_t i = 0; i < num_fen_parts; ++i) {
+		const size_t num_parts = 6;
+		char *parts[num_parts];
+		for (size_t i = 0; i < num_parts; ++i) {
 			parts[i] = strtok(NULL, " ");
 			if (!parts[i])
 				return;
 		}
 		size_t fen_len = 0;
-		for (size_t i = 0; i < num_fen_parts; ++i) {
+		for (size_t i = 0; i < num_parts; ++i) {
 			size_t part_len = strlen(parts[i]);
 			fen_len += part_len + 1; /* + 1 for space or '\0'. */
 			char *tmp = realloc(fen, fen_len);
@@ -512,7 +512,7 @@ static void position(void)
 			fen = tmp;
 			char *part_ptr = fen + fen_len - part_len - 1;
 			strcpy(part_ptr, parts[i]);
-			if (i < num_fen_parts - 1) {
+			if (i < num_parts - 1) {
 				fen[fen_len - 1] = ' ';
 			} else {
 				fen[fen_len - 1] = '\0';
@@ -543,14 +543,14 @@ static void position(void)
 		pos_destroy(current_position);
 	if (move_list)
 		free(move_list);
-	size_t len;
-	move_list = parse_moves(pos, &len);
+	size_t moves_len;
+	move_list = parse_moves(pos, &moves_len);
 	if (!move_list) {
 		pos_destroy(pos);
 		return;
 	}
 	current_position = pos;
-	num_moves = len;
+	num_moves = moves_len;
 }
 
 static void isready(void)
