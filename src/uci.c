@@ -37,14 +37,11 @@
 #include "search.h"
 #include "uci.h"
 
+static struct search_argument search_arg;
+static pthread_mutex_t search_running_mtx = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t search_thread;
-static bool started_search = false;
-static bool newgame_has_been_sent = false;
-static Position *current_position = NULL;
-static Move *move_list = NULL;
-int num_moves = 0;
-static pthread_mutex_t search_stop_mtx = PTHREAD_MUTEX_INITIALIZER;
-static bool search_stop = false;
+static bool search_running = false;
+static bool newgame_sent = false;
 
 static const size_t max_lan_len = 5;
 
@@ -73,9 +70,22 @@ struct option {
 	const int min;
 	const int max;
 } options[] = {
-	{.name = "UCI_AnalyseMode", .type = OPTION_TYPE_BOOLEAN, .default_value.boolean = false, .value.boolean = false},
-	{.name = "Hash", .type = OPTION_TYPE_INTEGER, .default_value.integer = 64, .value.integer = 64, .min = 64, .max = 32768},
-	{.name = "Ponder", .type = OPTION_TYPE_BOOLEAN, .default_value.boolean = false, .value.boolean = false},
+	{.name = "UCI_AnalyseMode",
+	 .type = OPTION_TYPE_BOOLEAN,
+	 .default_value.boolean = false,
+	 .value.boolean = false},
+
+	{.name = "Hash",
+	 .type = OPTION_TYPE_INTEGER,
+	 .default_value.integer = 64,
+	 .value.integer = 64,
+	 .min = 64,
+	 .max = 32768},
+
+	{.name = "Ponder",
+	 .type = OPTION_TYPE_BOOLEAN,
+	 .default_value.boolean = false,
+	 .value.boolean = false},
 };
 
 static void move_to_lan(char *lan, Move move)
@@ -100,8 +110,7 @@ static void move_to_lan(char *lan, Move move)
 	};
 
 	if (!move) {
-		memset(lan, '0', max_lan_len - 1);
-		lan[max_lan_len - 1] = '\0';
+		lan[0] = '\0';
 		return;
 	}
 
@@ -148,7 +157,7 @@ static Move lan_to_move(const char *lan, const Position *pos, bool *success)
 	free(moves);
 
 	*success = false;
-	return 0xffff;
+	return 0;
 }
 
 /*
@@ -171,7 +180,7 @@ static int str_to_option_value(union option_value *value, const char *name,
 			case OPTION_TYPE_STRING:
 				goto string;
 			default:
-				abort();
+				exit(1);
 			}
 		}
 	}
@@ -196,6 +205,10 @@ integer:
 	return 0;
 string:
 	value->string = malloc(strlen(str) + 1);
+	if (!value->string) {
+		fprintf(stderr, "Out of memory.\n");
+		exit(1);
+	}
 	strcpy(value->string, str);
 	return 0;
 }
@@ -262,6 +275,10 @@ static void id(void)
 static void info(const struct info *info)
 {
 	char *str = malloc(1), *tmp;
+	if (!str) {
+		fprintf(stderr, "Out of memory.\n");
+		exit(1);
+	}
 
 	str[0] = 0;
 
@@ -269,36 +286,36 @@ static void info(const struct info *info)
 		return;
 
 	if (info->flags & INFO_FLAG_DEPTH) {
-		asprintf(&tmp, "%sdepth %d ", str, info->depth);
+		SAFE_ASPRINTF(&tmp, "%sdepth %d ", str, info->depth);
 		free(str);
 		str = tmp;
 	}
 	if (info->flags & INFO_FLAG_NODES) {
-		asprintf(&tmp, "%snodes %lld ", str, info->nodes);
+		SAFE_ASPRINTF(&tmp, "%snodes %lld ", str, info->nodes);
 		free(str);
 		str = tmp;
 	}
 	if (info->flags & INFO_FLAG_CP) {
-		asprintf(&tmp, "%sscore %d ", str, info->cp);
+		SAFE_ASPRINTF(&tmp, "%sscore %d ", str, info->cp);
 		free(str);
 		str = tmp;
 	} else if (info->flags & INFO_FLAG_MATE) {
-		asprintf(&tmp, "%sscore mate %d ", str, info->mate);
+		SAFE_ASPRINTF(&tmp, "%sscore mate %d ", str, info->mate);
 		free(str);
 		str = tmp;
 	}
 	if (info->flags & INFO_FLAG_LBOUND) {
-		asprintf(&tmp, "%slowerbound ", str);
+		SAFE_ASPRINTF(&tmp, "%slowerbound ", str);
 		free(str);
 		str = tmp;
 	}
 	if (info->flags & INFO_FLAG_NPS) {
-		asprintf(&tmp, "%snps %lld ", str, info->nps);
+		SAFE_ASPRINTF(&tmp, "%snps %lld ", str, info->nps);
 		free(str);
 		str = tmp;
 	}
 	if (info->flags & INFO_FLAG_TIME) {
-		asprintf(&tmp, "%stime %lld", str, info->time);
+		SAFE_ASPRINTF(&tmp, "%stime %lld", str, info->time);
 		free(str);
 		str = tmp;
 	}
@@ -310,20 +327,26 @@ static void info(const struct info *info)
 
 static void quit(void)
 {
-	if (started_search) {
-		pthread_mutex_lock(&search_stop_mtx);
-		search_stop = true;
-		pthread_mutex_unlock(&search_stop_mtx);
-		pthread_join(search_thread, NULL);
-		started_search = false;
+	pthread_mutex_lock(&search_running_mtx);
+	if (search_running) {
+		search_running = false;
+		pthread_mutex_unlock(&search_running_mtx);
+		if (pthread_join(search_thread, NULL)) {
+			fprintf(stderr, "Internal error.\n");
+			exit(1);
+		}
+		pthread_mutex_lock(&search_running_mtx);
+		pthread_mutex_unlock(&search_running_mtx);
+	} else {
+		pthread_mutex_unlock(&search_running_mtx);
 	}
-	if (current_position) {
-		pos_destroy(current_position);
-		current_position = NULL;
+	if (search_arg.pos) {
+		pos_destroy(search_arg.pos);
+		search_arg.pos = NULL;
 	}
-	if (move_list) {
-		free(move_list);
-		move_list = NULL;
+	if (search_arg.moves) {
+		free(search_arg.moves);
+		search_arg.moves = NULL;
 	}
 	for (size_t i = 0; i < sizeof(options) / sizeof(options[0]); ++i) {
 		struct option *const op = &options[i];
@@ -335,12 +358,18 @@ static void quit(void)
 
 static void stop(void)
 {
-	if (started_search) {
-		pthread_mutex_lock(&search_stop_mtx);
-		search_stop = true;
-		pthread_mutex_unlock(&search_stop_mtx);
-		pthread_join(search_thread, NULL);
-		started_search = false;
+	pthread_mutex_lock(&search_running_mtx);
+	if (search_running) {
+		search_running = false;
+		pthread_mutex_unlock(&search_running_mtx);
+		if (pthread_join(search_thread, NULL)) {
+			fprintf(stderr, "Internal error.\n");
+			exit(1);
+		}
+		pthread_mutex_lock(&search_running_mtx);
+		pthread_mutex_unlock(&search_running_mtx);
+	} else {
+		pthread_mutex_unlock(&search_running_mtx);
 	}
 }
 
@@ -349,37 +378,15 @@ static void stop(void)
  */
 static void go(void)
 {
-	if (started_search) {
-		pthread_join(search_thread, NULL);
-		started_search = false;
-	}
-
-	if (!current_position) {
-		fprintf(stderr, "go command sent before position command.\n");
+	if (!search_arg.pos)
 		return;
-	}
 
-	struct search_argument *arg = malloc(sizeof(struct search_argument));
-	arg->stop_mtx = &search_stop_mtx;
-	arg->stop = &search_stop;
-	arg->settings.best_move_sender = bestmove;
-	arg->settings.info_sender = info;
-	arg->settings.pos = current_position;
-	arg->settings.moves = move_list;
-	arg->settings.num_moves = num_moves;
-	arg->settings.infinite = true;
-	arg->settings.depth = INT_MAX;
-	arg->settings.nodes = LLONG_MAX;
-	arg->settings.time[COLOR_WHITE] = arg->settings.time[COLOR_BLACK] = 0;
-	arg->settings.inc[COLOR_WHITE] = arg->settings.inc[COLOR_BLACK] = 0;
-	arg->settings.movetime = 0;
-	arg->settings.mate = 0;
-	arg->settings.perft = 0;
+	search_running = true;
 
 	char *str = strtok(NULL, " ");
 	while (str) {
 		if (!strcmp(str, "infinite")) {
-			arg->settings.infinite = true;
+			search_arg.infinite = true;
 		} else {
 			const char *const value = strtok(NULL, " ");
 			if (!value)
@@ -391,27 +398,27 @@ static void go(void)
 				return;
 
 			if (!strcmp(str, "depth")) {
-				arg->settings.depth = x;
-				arg->settings.infinite = false;
+				search_arg.depth = x;
+				search_arg.infinite = false;
 			} else if (!strcmp(str, "nodes")) {
-				arg->settings.nodes = x;
-				arg->settings.infinite = false;
+				search_arg.nodes = x;
+				search_arg.infinite = false;
 			} else if (!strcmp(str, "mate")) {
-				arg->settings.mate = x;
+				search_arg.mate = x;
 			} else if (!strcmp(str, "wtime")) {
-				arg->settings.time[COLOR_WHITE] = x;
+				search_arg.time[COLOR_WHITE] = x;
 			} else if (!strcmp(str, "btime")) {
-				arg->settings.time[COLOR_BLACK] = x;
+				search_arg.time[COLOR_BLACK] = x;
 			} else if (!strcmp(str, "winc")) {
-				arg->settings.inc[COLOR_WHITE] = x;
+				search_arg.inc[COLOR_WHITE] = x;
 			} else if (!strcmp(str, "binc")) {
-				arg->settings.inc[COLOR_BLACK] = x;
+				search_arg.inc[COLOR_BLACK] = x;
 			} else if (!strcmp(str, "movestogo")) {
-				arg->settings.movestogo = x;
+				search_arg.movestogo = x;
 			} else if (!strcmp(str, "movetime")) {
-				arg->settings.movetime = x;
+				search_arg.movetime = x;
 			} else if (!strcmp(str, "perft")) {
-				arg->settings.perft = x;
+				search_arg.perft = x;
 			}
 			else {
 				break;
@@ -420,28 +427,47 @@ static void go(void)
 		str = strtok(NULL, " ");
 	}
 
-	if (pthread_create(&search_thread, NULL, search_run, arg)) {
+	if (pthread_create(&search_thread, NULL, search_run, &search_arg)) {
+		search_running = false;
 		perror("Athena");
-	} else {
-		started_search = true;
-		search_stop = false;
 	}
+}
+
+static void init_search_arg(struct search_argument *arg)
+{
+	arg->moves = NULL;
+	arg->pos = NULL;
+	arg->running = &search_running;
+	arg->running_mtx = &search_running_mtx;
+	arg->best_move_sender = bestmove;
+	arg->info_sender = info;
+	arg->infinite = true;
+	arg->depth = INT_MAX;
+	arg->nodes = LLONG_MAX;
+	arg->time[COLOR_WHITE] = search_arg.time[COLOR_BLACK] = 0;
+	arg->inc[COLOR_WHITE] = search_arg.inc[COLOR_BLACK] = 0;
+	arg->movetime = 0;
+	arg->mate = 0;
+	arg->perft = 0;
 }
 
 static void ucinewgame(void)
 {
-	if (current_position) {
-		pos_destroy(current_position);
-		current_position = NULL;
+	if (search_arg.pos) {
+		pos_destroy(search_arg.pos);
+		search_arg.pos = NULL;
 	}
-	if (move_list) {
-		free(move_list);
-		move_list = NULL;
+	if (search_arg.moves) {
+		free(search_arg.moves);
+		search_arg.moves = NULL;
 	}
 	search_finish();
 	movegen_init();
 	search_init();
-	newgame_has_been_sent = true;
+
+	init_search_arg(&search_arg);
+
+	newgame_sent = true;
 }
 
 static Move *parse_moves(Position *pos, size_t *len)
@@ -460,8 +486,8 @@ static Move *parse_moves(Position *pos, size_t *len)
 			capacity_moves += 128;
 			Move *tmp = realloc(moves, capacity_moves);
 			if (!tmp) {
-				free(moves);
-				return NULL;
+				fprintf(stderr, "Out of memory.\n");
+				exit(1);
 			}
 			moves = tmp;
 		}
@@ -472,7 +498,6 @@ static Move *parse_moves(Position *pos, size_t *len)
 			return NULL;
 		}
 
-		/* The position after each move is stored in the list. */
 		move_do(pos, moves[num - 1]);
 	}
 
@@ -482,7 +507,7 @@ static Move *parse_moves(Position *pos, size_t *len)
 
 static void position(void)
 {
-	if (!newgame_has_been_sent)
+	if (!newgame_sent)
 		ucinewgame();
 	const char *startpos = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w "
 	                       "KQkq - 0 1";
@@ -506,8 +531,8 @@ static void position(void)
 			fen_len += part_len + 1; /* + 1 for space or '\0'. */
 			char *tmp = realloc(fen, fen_len);
 			if (!tmp) {
-				free(fen);
-				return;
+				fprintf(stderr, "Out of memory.\n");
+				exit(1);
 			}
 			fen = tmp;
 			char *part_ptr = fen + fen_len - part_len - 1;
@@ -531,7 +556,7 @@ static void position(void)
 
 	token = strtok(NULL, " ");
 	if (!token) {
-		current_position = pos;
+		search_arg.pos = pos;
 		return;
 	}
 	if (strcmp(token, "moves")) {
@@ -539,18 +564,18 @@ static void position(void)
 		return;
 	}
 
-	if (current_position)
-		pos_destroy(current_position);
-	if (move_list)
-		free(move_list);
+	if (search_arg.pos)
+		pos_destroy(search_arg.pos);
+	if (search_arg.moves)
+		free(search_arg.moves);
 	size_t moves_len;
-	move_list = parse_moves(pos, &moves_len);
-	if (!move_list) {
+	search_arg.moves = parse_moves(pos, &moves_len);
+	if (!search_arg.moves) {
 		pos_destroy(pos);
 		return;
 	}
-	current_position = pos;
-	num_moves = moves_len;
+	search_arg.pos = pos;
+	search_arg.num_moves = moves_len;
 }
 
 static void isready(void)
@@ -561,30 +586,21 @@ static void isready(void)
 /*
  * Read all the words until str is found or the end of the string has been
  * reached, and return the full sentence or NULL if there is nothing before str.
- * This function may receive an extra argument of type (bool *) and if str is
- * found at the end of the string it will be set to true and false if not found.
- * If str is an empty string then the function will read until the end and the
- * extra argument is ignored.
+ * If str is NULL then the function will read until the end and the extra
+ * argument is ignored.
  */
-static char *read_words_until_equal(const char *str, bool *allocation_error, ...)
+static char *read_words_until_equal(const char *str)
 {
-	va_list ap;
-	bool requires_extra = !!strlen(str);
-	if (requires_extra)
-		va_start(ap, allocation_error);
-
 	size_t name_len = 0;
-	*allocation_error = false;
 	char *joined = NULL, *word = NULL;
-	for (word = strtok(NULL, " "); word && strcmp(word, str);
+	for (word = strtok(NULL, " "); word && (!str || strcmp(word, str));
 	     word = strtok(NULL, " ")) {
 		const size_t word_len = strlen(word);
 		name_len += word_len + 1;
 		char *tmp = realloc(joined, name_len);
 		if (!tmp) {
-			*allocation_error = true;
-			free(joined);
-			return NULL;
+			fprintf(stderr, "Out of memory.\n");
+			exit(1);
 		}
 		joined = tmp;
 		strcpy(joined + name_len - word_len - 1, word);
@@ -594,8 +610,10 @@ static char *read_words_until_equal(const char *str, bool *allocation_error, ...
 		return NULL;
 	--name_len;
 	joined[name_len] = '\0';
-	if (requires_extra && word)
-		*va_arg(ap, bool *) = true;
+	if (str && !word) {
+		free(joined);
+		return NULL;
+	}
 	return joined;
 }
 
@@ -607,30 +625,13 @@ static void setoption(void)
 		return;
 	}
 
-	bool has_value = false, allocation_error = false;
-	char *name = read_words_until_equal("value", &allocation_error,
-	                                    &has_value);
-	if (allocation_error) {
-		fprintf(stderr, "Could not allocate memory.\n");
-		return;
-	}
+	char *name = read_words_until_equal("value");
 	if (!name) {
 		fprintf(stderr, "Invalid UCI command.\n");
 		return;
 	}
-	/* I might change this when I implement an option that is a button. */
-	if (!has_value) {
-		fprintf(stderr, "Invalid UCI command.\n");
-		free(name);
-		return;
-	}
 
-	char *const value_str = read_words_until_equal("", &allocation_error);
-	if (allocation_error) {
-		fprintf(stderr, "Could not allocate memory.\n");
-		free(name);
-		return;
-	}
+	char *const value_str = read_words_until_equal(NULL);
 	if (!value_str) {
 		fprintf(stderr, "Invalid UCI command.\n");
 		free(name);
@@ -653,7 +654,7 @@ static void setoption(void)
 		free(value_str);
 		return;
 	default:
-		abort();
+		exit(1);
 	}
 
 	for (size_t i = 0; i < sizeof(options) / sizeof(options[0]); ++i) {
@@ -684,11 +685,20 @@ bool uci_interpret(const char *str)
 	bool ret = true;
 	const size_t len = strlen(str);
 	char *const split_str = malloc(len + 1);
+	if (!split_str) {
+		fprintf(stderr, "Out of memory.\n");
+		exit(1);
+	}
 
 	strcpy(split_str, str);
 	char *const cmd = strtok(split_str, " ");
 
 	if (!cmd) {
+		free(split_str);
+		return ret;
+	}
+
+	if (search_running && strcmp(cmd, "stop") && strcmp(cmd, "quit")) {
 		free(split_str);
 		return ret;
 	}
@@ -725,6 +735,10 @@ char *uci_receive(bool *eof)
 {
 	size_t max_len = BUFSIZ;
 	char *str = malloc(max_len + 1);
+	if (!str) {
+		fprintf(stderr, "Out of memory.\n");
+		exit(1);
+	}
 
 	*eof = false;
 	size_t i = 0;
@@ -739,9 +753,8 @@ char *uci_receive(bool *eof)
 			max_len += BUFSIZ;
 			char *const tmp = realloc(str, max_len + 1);
 			if (!tmp) {
-				fprintf(stderr, "Could not allocate memory.\n");
-				free(str);
-				return NULL;
+				fprintf(stderr, "Out of memory.\n");
+				exit(1);
 			}
 			str = tmp;
 		}

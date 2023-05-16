@@ -73,8 +73,8 @@ struct parameters {
 	Position *pos;
 	Move *moves;
 	int num_moves;
-	bool *stop;
-	pthread_mutex_t *stop_mtx;
+	bool *running;
+	pthread_mutex_t *running_mtx;
 	void (*output)(const struct info *);
 };
 
@@ -340,14 +340,14 @@ static bool has_legal_moves(const Move *moves, size_t len, Position *pos)
 static int qsearch(int depth, int alpha, int beta, struct search_data *data,
                    struct info *info, const struct parameters *params)
 {
-	pthread_mutex_lock(params->stop_mtx);
+	pthread_mutex_lock(params->running_mtx);
 	if (data->nodes >= params->nodes || data->ply > MAX_PLY)
-		*params->stop = true;
-	if (*params->stop || data->nodes >= params->nodes) {
-		pthread_mutex_unlock(params->stop_mtx);
+		*params->running = false;
+	if (!*params->running || data->nodes >= params->nodes) {
+		pthread_mutex_unlock(params->running_mtx);
 		return alpha;
 	}
-	pthread_mutex_unlock(params->stop_mtx);
+	pthread_mutex_unlock(params->running_mtx);
 
 	++data->nodes;
 	++info->nodes;
@@ -448,20 +448,20 @@ struct info *info, const struct parameters *params)
 {
 	struct timespec now;
 	timespec_get(&now, TIME_UTC);
-	pthread_mutex_lock(params->stop_mtx);
+	pthread_mutex_lock(params->running_mtx);
 	if (params->limited_time) {
 		if (now.tv_sec > params->stop_time.tv_sec ||
 		    (now.tv_sec == params->stop_time.tv_sec &&
 		     now.tv_nsec >= params->stop_time.tv_nsec))
-			*params->stop = true;
+			*params->running = false;
 	}
 	if (data->nodes >= params->nodes || data->ply > MAX_PLY)
-		*params->stop = true;
-	if (*params->stop) {
-		pthread_mutex_unlock(params->stop_mtx);
+		*params->running = false;
+	if (!*params->running) {
+		pthread_mutex_unlock(params->running_mtx);
 		return alpha;
 	}
-	pthread_mutex_unlock(params->stop_mtx);
+	pthread_mutex_unlock(params->running_mtx);
 
 	++data->nodes;
 	++info->nodes;
@@ -635,14 +635,14 @@ static struct result search(const struct parameters *params)
 
 	timespec_get(&ts1, TIME_UTC);
 	for (size_t i = 0; i < len; ++i) {
-		pthread_mutex_lock(params->stop_mtx);
+		pthread_mutex_lock(params->running_mtx);
 		if (data.nodes >= params->nodes)
-			*params->stop = true;
-		if (*params->stop) {
-			pthread_mutex_unlock(params->stop_mtx);
+			*params->running = false;
+		if (!*params->running) {
+			pthread_mutex_unlock(params->running_mtx);
 			break;
 		}
-		pthread_mutex_unlock(params->stop_mtx);
+		pthread_mutex_unlock(params->running_mtx);
 
 		Move move = moves[i];
 		if (!move_is_legal(data.pos, move))
@@ -685,7 +685,7 @@ static struct result search(const struct parameters *params)
 		info.flags |= INFO_FLAG_MATE;
 	else
 		info.flags |= INFO_FLAG_CP;
-	if (*params->stop)
+	if (!*params->running)
 		info.flags |= INFO_FLAG_LBOUND;
 	params->output(&info);
 
@@ -803,54 +803,54 @@ void *search_run(void *data)
 {
 	struct search_argument *const arg = data;
 
-	int max_depth = arg->settings.depth;
-	long long nodes = arg->settings.nodes;
-	bool *const stop = arg->stop;
-	pthread_mutex_t *const mtx = arg->stop_mtx;
+	int max_depth = arg->depth;
+	long long nodes = arg->nodes;
 
-	if (arg->settings.infinite || arg->settings.mate) {
+	if (arg->infinite || arg->mate) {
 		max_depth = MAX_DEPTH;
 		nodes = LLONG_MAX;
 	} else {
-		if (arg->settings.depth > MAX_DEPTH)
+		if (arg->depth > MAX_DEPTH)
 			max_depth = MAX_DEPTH;
 	}
 
-	if (arg->settings.perft) {
+	if (arg->perft) {
 		struct parameters params;
-		params.depth = arg->settings.perft;
-		params.pos = arg->settings.pos;
-		params.output = arg->settings.info_sender;
+		params.depth = arg->perft;
+		params.pos = arg->pos;
+		params.output = arg->info_sender;
 		perft(&params);
-		free(arg);
+		pthread_mutex_lock(arg->running_mtx);
+		*arg->running = false;
+		pthread_mutex_unlock(arg->running_mtx);
 		return NULL;
 	}
 
-	Color color = pos_get_side_to_move(arg->settings.pos);
+	Color color = pos_get_side_to_move(arg->pos);
 
 	struct parameters params;
-	params.pos = arg->settings.pos;
-	params.mate = arg->settings.mate;
-	params.movestogo = arg->settings.movestogo;
-	params.moves = arg->settings.moves;
-	params.num_moves = arg->settings.num_moves;
-	params.stop = arg->stop;
-	params.stop_mtx = arg->stop_mtx;
-	params.output = arg->settings.info_sender;
-	if (arg->settings.movetime) {
+	params.pos = arg->pos;
+	params.mate = arg->mate;
+	params.movestogo = arg->movestogo;
+	params.moves = arg->moves;
+	params.num_moves = arg->num_moves;
+	params.running = arg->running;
+	params.running_mtx = arg->running_mtx;
+	params.output = arg->info_sender;
+	if (arg->movetime) {
 		params.limited_time = true;
 
-		long long movetime = arg->settings.movetime;
+		long long movetime = arg->movetime;
 
 		timespec_get(&params.stop_time, TIME_UTC);
 		add_time(&params.stop_time, movetime);
-	} else if (arg->settings.time[color]) {
+	} else if (arg->time[color]) {
 		params.limited_time = true;
 
-		long long total_time = arg->settings.time[color] + arg->settings.inc[color];
+		long long total_time = arg->time[color] + arg->inc[color];
 
 		const long long search_time = compute_search_time(params.pos,
-			total_time, arg->settings.movestogo);
+			total_time, arg->movestogo);
 		timespec_get(&params.stop_time, TIME_UTC);
 		add_time(&params.stop_time, search_time);
 	} else {
@@ -866,19 +866,22 @@ void *search_run(void *data)
 
 		nodes -= result.nodes;
 
-		pthread_mutex_lock(mtx);
-		if (*stop) {
-			pthread_mutex_unlock(mtx);
+		pthread_mutex_lock(arg->running_mtx);
+		if (!*arg->running) {
+			pthread_mutex_unlock(arg->running_mtx);
 			break;
 		}
-		pthread_mutex_unlock(mtx);
+		pthread_mutex_unlock(arg->running_mtx);
 
 		best_move = result.best;
 		if (params.mate && result.found_mate)
 			break;
 	}
-	arg->settings.best_move_sender(best_move);
+	arg->best_move_sender(best_move);
 
-	free(arg);
+	pthread_mutex_lock(arg->running_mtx);
+	*arg->running = false;
+	pthread_mutex_unlock(arg->running_mtx);
+
 	return NULL;
 }

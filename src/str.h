@@ -19,6 +19,15 @@
 #ifndef STR_H
 #define STR_H
 
+/*
+ * Version of asprintf that doesn't return anything and aborts in case of error.
+ */
+#define SAFE_ASPRINTF(...)\
+	if (asprintf(__VA_ARGS__) == -1) {\
+		fprintf(stderr, "Out of memory or some other error\n");\
+		abort();\
+	}
+
 int vasprintf(char **strp, const char *fmt, va_list va);
 int asprintf(char **strp, const char *fmt, ...);
 

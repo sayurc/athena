@@ -45,7 +45,28 @@ struct info {
 
 struct thread_data;
 
-struct search_settings {
+/*
+ * "moves" points to a list of moves made throughout the game, before the
+ * current search.
+ *
+ * If "infinite" is true the search won't stop until the calling
+ * thread sets "stop" to true and "depth", "mate", "movestogo", "perft",
+ * "nodes", "time", "inc" and "movetime" are ignored.
+ *
+ * "depth", "mate", "movestogo", "nodes", "time", "inc" and "movetime" work just
+ * as described in the UCI protocol. The search will stop as soon as any of
+ * these limits are reached. If any of these are used then "infinite" must be
+ * set to false. The unused limits must be set to 0 unless "infinite" is true,
+ * in which case they are just ignored.
+ * 
+ * "running" must be set to true when the search function is called.
+ * 
+ * While the search is running the calling thread must not modify any element of
+ * this struct except the data that "running" and "running_mtx" point to. The
+ * search function doesn't free the memory of any element, this should be done
+ * by the caller after the search thread terminates.
+ */
+struct search_argument {
 	Position *pos;
 	Move *moves;
 	int num_moves;
@@ -60,12 +81,8 @@ struct search_settings {
 	long long movetime;
 	void (*best_move_sender)(Move);
 	void (*info_sender)(const struct info *);
-};
-
-struct search_argument {
-	struct search_settings settings;
-	pthread_mutex_t *stop_mtx;
-	bool *stop;
+	pthread_mutex_t *running_mtx;
+	bool *running;
 };
 
 void *search_run(void *data);
