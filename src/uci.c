@@ -282,8 +282,10 @@ static void info(const struct info *info)
 
 	str[0] = 0;
 
-	if (!info->flags)
+	if (!info->flags) {
+		free(str);
 		return;
+	}
 
 	if (info->flags & INFO_FLAG_DEPTH) {
 		SAFE_ASPRINTF(&tmp, "%sdepth %d ", str, info->depth);

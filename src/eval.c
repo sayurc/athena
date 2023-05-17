@@ -531,17 +531,14 @@ int eval_evaluate_qmove(Move move, Position *pos)
 	const Square origin = move_get_origin(move);
 	const Square target = move_get_target(move);
 	const Piece piece = pos_get_piece_at(pos, origin);
-	const Color color = pos_get_piece_color(piece);
 	const PieceType pt = pos_get_piece_type(piece);
 	const MoveType move_type = move_get_type(move);
 
-	Piece cap_piece;
 	PieceType cap_piece_type;
 	if (move_type == MOVE_EP_CAPTURE) {
 		cap_piece_type = PIECE_TYPE_PAWN;
-		cap_piece = pos_make_piece(cap_piece_type, !color);
 	} else {
-		cap_piece = pos_get_piece_at(pos, target);
+		Piece cap_piece = pos_get_piece_at(pos, target);
 		cap_piece_type = pos_get_piece_type(cap_piece);
 	}
 
@@ -555,7 +552,7 @@ int eval_evaluate_qmove(Move move, Position *pos)
 			score += point_value[PIECE_TYPE_QUEEN];
 	} else {
 		move_do(pos, move);
-		cap_piece = pos_get_captured_piece(pos);
+		Piece cap_piece = pos_get_captured_piece(pos);
 		score += get_captured_piece_value(cap_piece) - evaluate_exchange(target, pos);
 		move_undo(pos, move);
 	}

@@ -140,6 +140,9 @@ static Move get_ply_move(int ply, struct search_data *data,
  * after exiting. Of course, different positions may hash to the same index so
  * we still have to compare the previous positions to make sure the counter
  * counted the right position.
+ *
+ * Note that the first repetition is already considered a draw because the
+ * opponent can usually force the second one.
  */
 static bool repeated(struct search_data *data, const struct parameters *params)
 {
@@ -366,7 +369,8 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 		alpha = stand_pat;
 
 	NodeType type = NODE_TYPE_ALL;
-	Move best_move;
+	int best_score = -INFINITE;
+	Move best_move = 0;
 	bool has_legal = false;
 	size_t len = 0;
 	Move *const moves_ptr = movegen_get_pseudo_legal_moves(data->pos, &len);
@@ -408,9 +412,12 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 		move_undo(data->pos, move);
 		--data->ply;
 
-		if (score > alpha) {
-			alpha = score;
+		if (score > best_score) {
+			best_score = score;
 			best_move = move;
+		}
+		if (best_score > alpha) {
+			alpha = best_score;
 			type = NODE_TYPE_PV;
 		}
 		if (alpha >= beta) {
@@ -418,6 +425,9 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 			break;
 		}
 	}
+	if (!best_move && has_legal)
+		best_move = moves_ptr[0];
+
 	free(moves_ptr);
 
 	if (!has_legal) {
@@ -484,7 +494,8 @@ struct info *info, const struct parameters *params)
 
 	bool in_check = is_in_check(data->pos);
 
-	Move best_move;
+	int best_score = -INFINITE;
+	Move best_move = 0;
 	bool has_legal = 0;
 	size_t len = 0;
 	Move *const moves_ptr = movegen_get_pseudo_legal_moves(data->pos, &len);
@@ -528,9 +539,12 @@ struct info *info, const struct parameters *params)
 		move_undo(data->pos, move);
 		--data->ply;
 
-		if (score > alpha) {
-			alpha = score;
+		if (score > best_score) {
+			best_score = score;
 			best_move = move;
+		}
+		if (best_score > alpha) {
+			alpha = best_score;
 			type = NODE_TYPE_PV;
 		}
 		if (alpha >= beta) {
@@ -540,6 +554,12 @@ struct info *info, const struct parameters *params)
 			break;
 		}
 	}
+	/* If no good moves are found then just pick the first one as best to
+	 * store in the TT (since best_score starts at -INFINITE this only
+	  * happens when all possibilities are genuinely bad.) */
+	if (!best_move && has_legal)
+		best_move = moves_ptr[0];
+
 	free(moves_ptr);
 
 	if (!has_legal) {
@@ -551,7 +571,7 @@ struct info *info, const struct parameters *params)
 		}
 	}
 
-	tt_entry_init(&pos_data, alpha, depth, type, best_move, data->pos);
+	tt_entry_init(&pos_data, best_score, depth, type, best_move, data->pos);
 	tt_store(&pos_data);
 	return alpha;
 }
@@ -755,7 +775,8 @@ static void perft(const struct parameters *params)
  * the function. Obviously the final search time calculated might be 0, which
  * means we're screwed and there's no time for search.
  */
-static long long compute_search_time(const Position *pos, long long time, int movestogo)
+static long long compute_search_time(const Position *pos, long long time,
+                                     int movestogo)
 {
 	if (movestogo == 1) {
 		double factor = pow(time / 1000., 1.1);
