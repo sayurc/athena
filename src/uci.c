@@ -486,7 +486,7 @@ static Move *parse_moves(Position *pos, size_t *len)
 		++num;
 		if (num > capacity_moves) {
 			capacity_moves += 128;
-			Move *tmp = realloc(moves, capacity_moves);
+			Move *tmp = realloc(moves, capacity_moves * sizeof(Move));
 			if (!tmp) {
 				fprintf(stderr, "Out of memory.\n");
 				exit(1);
