@@ -406,8 +406,8 @@ void pos_print(const Position *pos)
 	printf("En passant: ");
 	if (pos_enpassant_possible(pos)) {
 		Square sq = pos_get_enpassant(pos);
-		file = pos_get_file_of_square(sq);
-		rank = pos_get_rank_of_square(sq);
+		file = pos_get_file(sq);
+		rank = pos_get_rank(sq);
 		printf("%c%d\n", file + 'A', rank + 1);
 	} else {
 		printf("-\n");
@@ -725,12 +725,12 @@ Square pos_file_rank_to_square(File f, Rank r)
 	return 8 * r + f;
 }
 
-File pos_get_file_of_square(Square sq)
+File pos_get_file(Square sq)
 {
 	return sq % 8;
 }
 
-Rank pos_get_rank_of_square(Square sq)
+Rank pos_get_rank(Square sq)
 {
 	return sq / 8;
 }

@@ -117,10 +117,10 @@ static void move_to_lan(char *lan, Move move)
 	const Square sq1 = move_get_origin(move);
 	const Square sq2 = move_get_target(move);
 	const MoveType type = move_get_type(move);
-	const File file1 = pos_get_file_of_square(sq1);
-	const File file2 = pos_get_file_of_square(sq2);
-	const Rank rank1 = pos_get_rank_of_square(sq1);
-	const Rank rank2 = pos_get_rank_of_square(sq2);
+	const File file1 = pos_get_file(sq1);
+	const File file2 = pos_get_file(sq2);
+	const Rank rank1 = pos_get_rank(sq1);
+	const Rank rank2 = pos_get_rank(sq2);
 
 	lan[0] = file_to_char[file1];
 	lan[1] = rank_to_char[rank1];
@@ -486,7 +486,8 @@ static Move *parse_moves(Position *pos, size_t *len)
 		++num;
 		if (num > capacity_moves) {
 			capacity_moves += 128;
-			Move *tmp = realloc(moves, capacity_moves * sizeof(Move));
+			Move *tmp = realloc(moves,
+			                    capacity_moves * sizeof(Move));
 			if (!tmp) {
 				fprintf(stderr, "Out of memory.\n");
 				exit(1);

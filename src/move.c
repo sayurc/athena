@@ -290,7 +290,7 @@ static void do_double_push(Position *pos, Square from, Square to, Piece piece)
 	pos_increment_halfmove_clock(pos);
 	pos_remove_piece(pos, from);
 	pos_place_piece(pos, to, piece);
-	pos_set_enpassant(pos, pos_get_file_of_square(from));
+	pos_set_enpassant(pos, pos_get_file(from));
 	pos_reset_halfmove_clock(pos);
 
 	if (c == COLOR_BLACK)

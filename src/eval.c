@@ -305,8 +305,8 @@ static int estimate_positioning_gain(Move move, Position *pos)
 
 	if (piece_type == PIECE_TYPE_PAWN) {
 		score += piece_color == COLOR_WHITE ?
-		         pos_get_rank_of_square(target) :
-		         (RANK_7 - pos_get_rank_of_square(target));
+		         pos_get_rank(target) :
+		         (RANK_7 - pos_get_rank(target));
 	}
 
 	score += sq_tables[piece_color][piece_type][target].mg;
@@ -362,8 +362,8 @@ static int estimate_mobility_gain(Move move, Position *pos)
 	}
 	mobility -= number_of_possible_moves[piece_type][origin];
 
-	const Rank rank = pos_get_rank_of_square(target);
-	const File file = pos_get_file_of_square(target);
+	const Rank rank = pos_get_rank(target);
+	const File file = pos_get_file(target);
 	/* Moving to the center of the board means more squares to attack. */
 	if (piece_type != PIECE_TYPE_PAWN) {
 		if ((rank == RANK_5 || rank == RANK_4) && (file == FILE_D || file == FILE_E))
@@ -416,8 +416,8 @@ static int evaluate_exchange(Square target, Position *pos)
 		const Square from = get_ls1b(attackers);
 		const Piece piece = pos_get_piece_at(pos, from);
 		MoveType move_type = MOVE_CAPTURE;
-		if ((piece == PIECE_WHITE_PAWN && pos_get_rank_of_square(target) == RANK_8) ||
-		    (piece == PIECE_BLACK_PAWN && pos_get_rank_of_square(target) == RANK_1))
+		if ((piece == PIECE_WHITE_PAWN && pos_get_rank(target) == RANK_8) ||
+		    (piece == PIECE_BLACK_PAWN && pos_get_rank(target) == RANK_1))
 			move_type = MOVE_QUEEN_PROMOTION_CAPTURE;
 		const Move move = move_new(from, target, move_type);
 		move_do(pos, move);

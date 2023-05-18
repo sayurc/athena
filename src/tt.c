@@ -92,7 +92,7 @@ u64 tt_hash(const Position *pos)
 
 	if (pos_enpassant_possible(pos)) {
 		const Square sq = pos_get_enpassant(pos);
-		const File file = pos_get_file_of_square(sq);
+		const File file = pos_get_file(sq);
 		key ^= ptr[file];
 	}
 	ptr += NUM_EN_PASSANT_FILES;
