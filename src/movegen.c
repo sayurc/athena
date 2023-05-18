@@ -856,17 +856,26 @@ u64 movegen_get_attackers(Square sq, const Position *pos)
 {
 	const u64 occ = pos_get_color_bitboard(pos, COLOR_WHITE)
 	              | pos_get_color_bitboard(pos, COLOR_BLACK);
-	u64 (*const get_bb)(const Position *pos, Piece piece) = pos_get_piece_bitboard;
+	u64 (*const get_bb)(const Position *pos,
+	                    Piece piece) = pos_get_piece_bitboard;
 
-	const u64 knights = get_bb(pos, PIECE_WHITE_KNIGHT)        | get_bb(pos, PIECE_BLACK_KNIGHT);
-	const u64 kings   = get_bb(pos, PIECE_WHITE_KING)          | get_bb(pos, PIECE_BLACK_KING);
-	const u64 bishops_queens = get_bb(pos, PIECE_WHITE_QUEEN)  | get_bb(pos, PIECE_BLACK_QUEEN)
-	                         | get_bb(pos, PIECE_WHITE_BISHOP) | get_bb(pos, PIECE_BLACK_BISHOP);
-	const u64 rooks_queens   = get_bb(pos, PIECE_WHITE_QUEEN)  | get_bb(pos, PIECE_BLACK_QUEEN)
-	                         | get_bb(pos, PIECE_WHITE_ROOK)   | get_bb(pos, PIECE_BLACK_ROOK);
+	const u64 white_pawns = get_bb(pos, PIECE_BLACK_PAWN);
+	const u64 black_pawns = get_bb(pos, PIECE_WHITE_PAWN);
+	const u64 knights = get_bb(pos, PIECE_WHITE_KNIGHT)
+	                  | get_bb(pos, PIECE_BLACK_KNIGHT);
+	const u64 kings   = get_bb(pos, PIECE_WHITE_KING)
+	                  | get_bb(pos, PIECE_BLACK_KING);
+	const u64 bishops_queens = get_bb(pos, PIECE_WHITE_QUEEN)
+	                         | get_bb(pos, PIECE_BLACK_QUEEN)
+	                         | get_bb(pos, PIECE_WHITE_BISHOP)
+	                         | get_bb(pos, PIECE_BLACK_BISHOP);
+	const u64 rooks_queens   = get_bb(pos, PIECE_WHITE_QUEEN)
+	                         | get_bb(pos, PIECE_BLACK_QUEEN)
+	                         | get_bb(pos, PIECE_WHITE_ROOK)
+	                         | get_bb(pos, PIECE_BLACK_ROOK);
 
-	return (get_pawn_attacks(sq, COLOR_WHITE) & get_bb(pos, PIECE_BLACK_PAWN))
-	     | (get_pawn_attacks(sq, COLOR_BLACK) & get_bb(pos, PIECE_WHITE_PAWN))
+	return (get_pawn_attacks(sq, COLOR_WHITE) & white_pawns)
+	     | (get_pawn_attacks(sq, COLOR_BLACK) & black_pawns)
 	     | (get_knight_attacks(sq)            & knights)
 	     | (get_king_attacks(sq)              & kings)
 	     | (get_bishop_attacks(sq, occ)       & bishops_queens)
