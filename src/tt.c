@@ -80,8 +80,8 @@ u64 tt_hash(const Position *pos)
 
 	u8 rights = 0;
 	for (Color color = COLOR_WHITE; color <= COLOR_BLACK; ++color) {
-		const bool has_king_right = pos_has_castling_right(pos, color,
-		                            CASTLING_SIDE_KING);
+		const bool has_king_right  = pos_has_castling_right(pos, color,
+		                             CASTLING_SIDE_KING);
 		const bool has_queen_right = pos_has_castling_right(pos, color,
 		                             CASTLING_SIDE_QUEEN);
 		rights = (has_king_right << 1) | has_queen_right;
@@ -107,7 +107,7 @@ u64 tt_hash(const Position *pos)
  * It will return true if the node data is in the transposition table table and
  * false otherwise.
  */
-bool tt_get(NodeData *data, const Position *pos)
+bool tt_get(NodeData *restrict data, const Position *restrict pos)
 {
 	const u64 node_hash = tt_hash(pos);
 	const size_t key = node_hash % transposition_table.capacity;

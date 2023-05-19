@@ -472,7 +472,7 @@ static void add_move(MoveList *list, Move move)
 		Move *const tmp = realloc(list->ptr,
 		                          list->capacity * sizeof(Move));
 		if (!tmp) {
-			fprintf(stderr, "Could not allocate memory.");
+			fprintf(stderr, "Out of memory.");
 			exit(1);
 		}
 		list->ptr = tmp;
@@ -796,6 +796,10 @@ Move *movegen_get_pseudo_legal_moves(const Position *restrict pos,
 
 	list.capacity = initial_capacity;
 	list.ptr = malloc(list.capacity * sizeof(Move));
+	if (!list.ptr) {
+		fprintf(stderr, "Out of memory.\n");
+		exit(1);
+	}
 	list.len = 0;
 
 	add_moves(&list, PIECE_TYPE_PAWN, pos);
