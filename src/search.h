@@ -87,6 +87,8 @@ struct search_argument {
 
 void *search_run(void *data);
 void search_finish(void);
-void search_init(void);
+void search_clear_hash_table(void);
+void search_resize_hash_table(int tt_size);
+void search_init(int size);
 
 #endif

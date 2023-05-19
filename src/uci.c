@@ -54,6 +54,7 @@ enum option_type {
 	OPTION_TYPE_BOOLEAN,
 	OPTION_TYPE_INTEGER,
 	OPTION_TYPE_STRING,
+	OPTION_TYPE_BUTTON,
 };
 
 union option_value {
@@ -65,28 +66,34 @@ union option_value {
 struct option {
 	const char *name;
 	const enum option_type type;
+	void (*func)(void); /* Only used for button type. */
 	const union option_value default_value;
 	union option_value value;
 	const int min;
 	const int max;
 } options[] = {
-	{.name = "UCI_AnalyseMode",
-	 .type = OPTION_TYPE_BOOLEAN,
-	 .default_value.boolean = false,
-	 .value.boolean = false},
-
 	{.name = "Hash",
 	 .type = OPTION_TYPE_INTEGER,
-	 .default_value.integer = 64,
-	 .value.integer = 64,
-	 .min = 64,
+	 .default_value.integer = 1,
+	 .value.integer = 1,
+	 .min = 1,
 	 .max = 32768},
-
-	{.name = "Ponder",
-	 .type = OPTION_TYPE_BOOLEAN,
-	 .default_value.boolean = false,
-	 .value.boolean = false},
+	
+	{.name = "Clear Hash",
+	 .type = OPTION_TYPE_BUTTON,
+	 .func = search_clear_hash_table},
 };
+
+static struct option *get_option(const char *name)
+{
+	const size_t num = sizeof(options) / sizeof(struct option);
+	for (size_t i = 0; i < num; ++i) {
+		if (!strcmp(options[i].name, name))
+			return &options[i];
+	}
+
+	return NULL;
+}
 
 static void move_to_lan(char *lan, Move move)
 {
@@ -161,8 +168,8 @@ static Move lan_to_move(const char *lan, const Position *pos, bool *success)
 }
 
 /*
- * Convert a string to a value for an option and return 0 on success, 1 if the
- * option was not found and 2 if str is not a valid value for the option.
+ * Convert a string to a value for an option and return 0 on success and 1
+ * otherwise.
  */
 static int str_to_option_value(union option_value *value, const char *name,
                                const char *str)
@@ -192,7 +199,7 @@ boolean:
 	else if (!strcmp(str, "false"))
 		value->boolean = false;
 	else
-		return 2;
+		return 1;
 	return 0;
 integer:
 	errno = 0;
@@ -200,7 +207,7 @@ integer:
 	long n = strtol(str, &endptr, 10);
 	if (errno == ERANGE || endptr == str || *endptr != '\0' ||
 	    n < op->min || n > op->max)
-		return 2;
+		return 1;
 	value->integer = n;
 	return 0;
 string:
@@ -261,6 +268,9 @@ static void option(void)
 		case OPTION_TYPE_STRING:
 			uci_send("option name %s type string default %s",
 			          op->name, op->default_value.string);
+			break;
+		case OPTION_TYPE_BUTTON:
+			uci_send("option name %s type button", op->name);
 			break;
 		}
 	}
@@ -464,8 +474,13 @@ static void ucinewgame(void)
 		search_arg.moves = NULL;
 	}
 	search_finish();
-	movegen_init();
-	search_init();
+
+	const struct option *const hash = get_option("Hash");
+	if (!hash) {
+		fprintf(stderr, "Internal error.\n");
+		exit(1);
+	}
+	search_init(hash->value.integer);
 
 	init_search_arg(&search_arg);
 
@@ -592,8 +607,10 @@ static void isready(void)
  * If str is NULL then the function will read until the end and the extra
  * argument is ignored.
  */
-static char *read_words_until_equal(const char *str)
+static char *read_words_until_equal(const char *str, bool *found)
 {
+	if (str)
+		*found = false;
 	size_t name_len = 0;
 	char *joined = NULL, *word = NULL;
 	for (word = strtok(NULL, " "); word && (!str || strcmp(word, str));
@@ -613,62 +630,53 @@ static char *read_words_until_equal(const char *str)
 		return NULL;
 	--name_len;
 	joined[name_len] = '\0';
-	if (str && !word) {
-		free(joined);
-		return NULL;
-	}
+	if (str && word)
+		*found = true;
 	return joined;
 }
 
 static void setoption(void)
 {
 	char *token = strtok(NULL, " ");
-	if (!token || strcmp(token, "name")) {
-		fprintf(stderr, "Invalid UCI command.\n");
+	if (!token || strcmp(token, "name"))
+		return;
+
+	bool value_keyword;
+	char *name = read_words_until_equal("value", &value_keyword);
+	if (!name)
+		return;
+
+	struct option *const op = get_option(name);
+	if (!op) {
+		free(name);
 		return;
 	}
 
-	char *name = read_words_until_equal("value");
-	if (!name) {
-		fprintf(stderr, "Invalid UCI command.\n");
+	if (!value_keyword && op->type != OPTION_TYPE_BUTTON) {
+		free(name);
+		return;
+	} else if (op->type == OPTION_TYPE_BUTTON) {
+		op->func();
+		free(name);
 		return;
 	}
 
-	char *const value_str = read_words_until_equal(NULL);
+	char *const value_str = read_words_until_equal(NULL, NULL);
 	if (!value_str) {
-		fprintf(stderr, "Invalid UCI command.\n");
 		free(name);
 		return;
 	}
 
 	union option_value value;
-	switch (str_to_option_value(&value, name, value_str)) {
-	case 0:
-		break;
-	case 1:
-		fprintf(stderr, "Option %s not recognized.\n", name);
+	if (str_to_option_value(&value, name, value_str)) {
 		free(name);
 		free(value_str);
 		return;
-	case 2:
-		fprintf(stderr, "%s is not a valid value for %s\n", value_str,
-		        name);
-		free(name);
-		free(value_str);
-		return;
-	default:
-		exit(1);
 	}
 
-	for (size_t i = 0; i < sizeof(options) / sizeof(options[0]); ++i) {
-		struct option *const op = &options[i];
-		if (!strcmp(name, op->name)) {
-			if (op->type == OPTION_TYPE_STRING)
-				free(op->value.string);
-			op->value = value;
-			break;
-		}
-	}
+	if (op->type == OPTION_TYPE_STRING)
+		free(op->value.string);
+	op->value = value;
 	free(name);
 	free(value_str);
 }

@@ -52,9 +52,12 @@ typedef struct node_data {
 u64 tt_hash(const Position *pos);
 bool tt_get(NodeData *data, const Position *pos);
 void tt_store(const NodeData *data);
-void tt_entry_init(NodeData *pos_data, int score, int depth, NodeType type, Move best_move, const Position *pos);
+void tt_entry_init(NodeData *pos_data, int score, int depth, NodeType type,
+                   Move best_move, const Position *pos);
 void tt_prefetch(void);
-void tt_init(void);
+void tt_clear(void);
+void tt_resize(int size);
+void tt_init(int size);
 void tt_finish(void);
 
 #endif

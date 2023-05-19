@@ -20,6 +20,8 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <limits.h>
+#include <string.h>
 
 #ifdef __x86_64__
 #include <x86intrin.h>
@@ -51,6 +53,30 @@ struct transposition_table {
 } transposition_table = {.ptr = NULL, .capacity = 0};
 
 static u64 zobrist_numbers[ZOBRIST_ARRAY_SIZE];
+
+static bool is_prime(unsigned long long n)
+{
+	for (unsigned long long m = n - 1; m * m >= n; --m) {
+		if (n % m == 0)
+			return false;
+	}
+	return true;
+}
+
+/*
+ * Finds the greatest prime number less than or equal to n. Notice that n must
+ * be at least 2.
+ */
+static unsigned long long find_prime(unsigned long long n)
+{
+	for (unsigned long long p = n; p > 0; --p) {
+		if (is_prime(p))
+			return p;
+	}
+
+	fprintf(stderr, "Internal error.\n");
+	exit(1);
+}
 
 /*
  * Generate a set of unique random numbers for Zobrist hashing.
@@ -144,15 +170,72 @@ void tt_prefetch(void)
 #endif
 }
 
-void tt_init(void)
+static size_t compute_capacity(int size)
+{
+	const long mib_in_byte = 1048576;
+
+	long tmp = size;
+	if (tmp > LONG_MAX / mib_in_byte)
+		tmp = LONG_MAX / sizeof(NodeData);
+	else
+		tmp = (tmp * mib_in_byte) / sizeof(NodeData);
+	tmp %= SIZE_MAX;
+	printf("capacity = %llu\n", find_prime(tmp));
+	return find_prime(tmp);
+}
+
+/*
+ * This function does nothing if the transposition table has not been
+ * initialized.
+ */
+void tt_clear(void)
+{
+	NodeData *const ptr = transposition_table.ptr;
+	if (!ptr)
+		return;
+	const size_t capacity = transposition_table.capacity;
+	memset(ptr, 0, capacity * sizeof(NodeData));
+}
+
+/*
+ * This function does nothing if the transposition table has not been
+ * initialized.
+ */
+void tt_resize(int size)
+{
+	if (!transposition_table.ptr)
+		return;
+	const size_t old_capacity = transposition_table.capacity;
+	const size_t new_capacity = compute_capacity(size);
+	transposition_table.capacity = new_capacity;
+	transposition_table.ptr = realloc(transposition_table.ptr,
+	                                  new_capacity * sizeof(NodeData));
+	if (!transposition_table.ptr) {
+		fprintf(stderr, "Out of memory.\n");
+		exit(1);
+	}
+
+	if (new_capacity > old_capacity) {
+		memset(transposition_table.ptr + old_capacity, 0,
+		       (new_capacity - old_capacity) * sizeof(NodeData));
+	}
+}
+
+/*
+ * The capacity of the transposition table is calculated with the size given in
+ * mebibytes. For performance reasons the capacity is a prime number less than
+ * the originally calculated capacity. If the size is too big then a default
+ * capacity is used instead.
+ */
+void tt_init(int size)
 {
 	init_hash();
 
-	transposition_table.capacity = 8191;
+	transposition_table.capacity = compute_capacity(size);
 	transposition_table.ptr = calloc(transposition_table.capacity,
 	                                 sizeof(NodeData));
 	if (!transposition_table.ptr) {
-		fprintf(stderr, "Could not allocate memory");
+		fprintf(stderr, "Out of memory.");
 		exit(1);
 	}
 }

@@ -581,11 +581,24 @@ struct info *info, const struct parameters *params)
  * initializes all the tables and call other initialization functions. It does
  * not need to be called between every search, only once (unless it's desirable
  * to start a new search with a clean state.)
+ *
+ * tt_size is the transposition table size in mebibytes.
  */
-void search_init(void)
+void search_init(int tt_size)
 {
-	tt_init();
+	movegen_init();
+	tt_init(tt_size);
 	eval_init();
+}
+
+void search_clear_hash_table(void)
+{
+	tt_clear();
+}
+
+void search_resize_hash_table(int tt_size)
+{
+	tt_resize(tt_size);
 }
 
 void search_finish(void)
