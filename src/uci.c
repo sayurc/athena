@@ -308,7 +308,7 @@ static void info(const struct info *info)
 		str = tmp;
 	}
 	if (info->flags & INFO_FLAG_CP) {
-		SAFE_ASPRINTF(&tmp, "%sscore %d ", str, info->cp);
+		SAFE_ASPRINTF(&tmp, "%sscore cp %d ", str, info->cp);
 		free(str);
 		str = tmp;
 	} else if (info->flags & INFO_FLAG_MATE) {
