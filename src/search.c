@@ -359,8 +359,11 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 		return 0;
 
 	NodeData pos_data;
-	if (tt_get(&pos_data, data->pos) && pos_data.depth >= depth)
+	if (tt_get(&pos_data, data->pos)) {
+		if (pos_data.depth >= depth && pos_data.type == NODE_TYPE_CUT &&
+		    pos_data.score >= beta)
 		return pos_data.score;
+	}
 
 	int stand_pat = eval_evaluate(data->pos);
 	if (stand_pat >= beta)
@@ -480,8 +483,11 @@ struct info *info, const struct parameters *params)
 		return 0;
 
 	NodeData pos_data;
-	if (tt_get(&pos_data, data->pos) && pos_data.depth >= depth)
+	if (tt_get(&pos_data, data->pos)) {
+		if (pos_data.depth >= depth && pos_data.type == NODE_TYPE_CUT &&
+		    pos_data.score >= beta)
 		return pos_data.score;
+	}
 	if (!depth) {
 		/* The quiescence search will count this node so we decrement
 		 * the current count to avoid counting it twice. */
