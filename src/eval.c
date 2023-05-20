@@ -173,6 +173,9 @@ static const int eg_king_sq_table[64] = {
 	-53, -34, -21, -11, -28, -14, -24, -43
 };
 
+/*
+* Indexed by color, piece type and square.
+*/
 static struct score sq_tables[2][6][64];
 
 /*
