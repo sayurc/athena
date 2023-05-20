@@ -174,8 +174,8 @@ static const int eg_king_sq_table[64] = {
 };
 
 /*
-* Indexed by color, piece type and square.
-*/
+ * Indexed by color, piece type and square.
+ */
 static struct score sq_tables[2][6][64];
 
 /*
