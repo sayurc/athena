@@ -31,7 +31,7 @@ typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
 
-#if (defined(__clang__) || defined(__GNUC__)) && defined(__BMI2__)
+#ifdef __BMI2__
 #define HAS_BMI2 true
 #else
 #define HAS_BMI2 false
