@@ -53,7 +53,7 @@ u64 rng_next(void)
 }
 
 /*
- * Since magic numbers seem to work best with numbers with sparse bits.
+ * Magic numbers seem to work best with numbers with sparse bits.
  * Considering the RNG generates a uniformly distributed sequence of numbers,
  * this function should generate numbers which have 1/8 of their bits set on
  * average.
