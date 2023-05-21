@@ -2,7 +2,7 @@ project('Athena', 'c', license : 'GPLv3', version : '1.0.0',
         default_options : ['c_std=c17'])
 
 cc = meson.get_compiler('c')
-math_dep = cc.find_library('m', required : true)
+math_dep = cc.find_library('m', required : false)
 thread_dep = dependency('threads')
 src = ['src/bit.c',
        'src/bit.h',
