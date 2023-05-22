@@ -18,7 +18,7 @@
 #ifdef _WIN32
 int thrd_create(thrd_t *thr, thrd_start_t func, void *arg)
 {
-	*thr = CreateThread(NULL, 0, func, arg, NULL, NULL);
+	*thr = CreateThread(NULL, 0, func, arg, 0, NULL);
 	if (*thr)
 		return thrd_success;
 	else if (GetLastError() == ERROR_NOT_ENOUGH_MEMORY)
