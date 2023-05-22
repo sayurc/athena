@@ -25,9 +25,9 @@
 #include <stdarg.h>
 #include <limits.h>
 
-#include <pthread.h>
-
+#ifdef TEST
 #include <check.h>
+#endif
 
 #include "bit.h"
 #include "str.h"
@@ -40,11 +40,11 @@
 
 static struct search_argument search_arg;
 static mtx_t search_running_mtx;
-static pthread_t search_thread;
+static thrd_t search_thread;
 static bool search_running = false;
 static bool newgame_sent = false;
 
-static const size_t max_lan_len = 5;
+#define MAX_LAN_LEN 5
 
 #define OPTION_UCI_ANALYSISMODE_TYPE boolean
 #define OPTION_HASH_TYPE integer
@@ -150,7 +150,7 @@ static void move_to_lan(char *lan, Move move)
  */
 static Move lan_to_move(const char *lan, const Position *pos, bool *success)
 {
-	char test_lan[max_lan_len + 1];
+	char test_lan[MAX_LAN_LEN + 1];
 	size_t len;
 	Move *moves = movegen_get_pseudo_legal_moves(pos, &len);
 	for (size_t i = 0; i < len; ++i) {
@@ -182,11 +182,11 @@ static int str_to_option_value(union option_value *value, const char *name,
 		if (!strcmp(name, op->name)) {
 			switch (op->type) {
 			case OPTION_TYPE_BOOLEAN:
-				goto boolean;
+				goto type_boolean;
 			case OPTION_TYPE_INTEGER:
-				goto integer;
+				goto type_integer;
 			case OPTION_TYPE_STRING:
-				goto string;
+				goto type_string;
 			default:
 				exit(1);
 			}
@@ -194,7 +194,7 @@ static int str_to_option_value(union option_value *value, const char *name,
 	}
 	return 1;
 
-boolean:
+type_boolean:
 	if (!strcmp(str, "true"))
 		value->boolean = true;
 	else if (!strcmp(str, "false"))
@@ -202,7 +202,7 @@ boolean:
 	else
 		return 1;
 	return 0;
-integer:
+type_integer:
 	errno = 0;
 	char *endptr;
 	long n = strtol(str, &endptr, 10);
@@ -211,7 +211,7 @@ integer:
 		return 1;
 	value->integer = n;
 	return 0;
-string:
+type_string:
 	value->string = malloc(strlen(str) + 1);
 	if (!value->string) {
 		fprintf(stderr, "Out of memory.\n");
@@ -232,7 +232,7 @@ void uci_send(const char *fmt, ...)
 
 static void bestmove(Move move)
 {
-	char lan[max_lan_len + 1];
+	char lan[MAX_LAN_LEN + 1];
 
 	move_to_lan(lan, move);
 	uci_send("bestmove %s", lan);
@@ -491,7 +491,7 @@ static Move *parse_moves(Position *pos, size_t *len)
 	Move *moves = NULL;
 	for (char *move = strtok(NULL, " "); move; move = strtok(NULL, " ")) {
 		const size_t move_len = strlen(move);
-		if (move_len > max_lan_len) {
+		if (move_len > MAX_LAN_LEN) {
 			free(moves);
 			return NULL;
 		}
@@ -534,7 +534,7 @@ static void position(void)
 	} else if (token && !strcmp(token, "fen")) {
 		char *fen = NULL;
 		const size_t num_parts = 6;
-		char *parts[num_parts];
+		char *parts[6];
 		for (size_t i = 0; i < num_parts; ++i) {
 			parts[i] = strtok(NULL, " ");
 			if (!parts[i])
@@ -706,7 +706,7 @@ bool uci_interpret(const char *str)
 		return ret;
 	}
 
-	if (search_running && (strcmp(cmd, "stop") || strcmp(cmd, "quit"))) {
+	if (search_running && strcmp(cmd, "stop") && strcmp(cmd, "quit")) {
 		free(split_str);
 		return ret;
 	}

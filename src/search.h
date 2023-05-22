@@ -81,7 +81,7 @@ struct search_argument {
 	long long movetime;
 	void (*best_move_sender)(Move);
 	void (*info_sender)(const struct info *);
-	pthread_mutex_t *running_mtx;
+	mtx_t *running_mtx;
 	bool *running;
 };
 

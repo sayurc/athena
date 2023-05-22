@@ -24,9 +24,9 @@
 #include <time.h>
 #include <math.h>
 
-#include <pthread.h>
-
+#ifdef TEST
 #include <check.h>
+#endif
 
 #include "bit.h"
 #include "threads.h"
@@ -79,7 +79,7 @@ struct parameters {
 	void (*output)(const struct info *);
 };
 
-static const int INFINITE = SHRT_MAX;
+static const int INF = SHRT_MAX;
 
 static void inc_pos_cnt(i8 *cnt, const Position *pos)
 {
@@ -245,7 +245,7 @@ struct search_data *data)
 {
 	static const int capture_offset = 300;
 	static const int killer_offset = 600;
-	int best_score = -INFINITE;
+	int best_score = -INF;
 	size_t best_idx = 0;
 
 	for (size_t i = 0; i < len; ++i) {
@@ -287,7 +287,7 @@ struct search_data *data)
 static size_t get_next_qmove(const Move *moves, size_t len,
 struct search_data *data, bool *ended)
 {
-	int best_score = -INFINITE;
+	int best_score = -INF;
 	size_t best_idx = 0;
 
 	for (size_t i = 0; i < len; ++i) {
@@ -309,7 +309,7 @@ struct search_data *data, bool *ended)
 		}
 	}
 
-	if (best_score == -INFINITE)
+	if (best_score == -INF)
 		*ended = true;
 
 	return best_idx;
@@ -376,7 +376,7 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 		alpha = stand_pat;
 
 	NodeType type = NODE_TYPE_ALL;
-	int best_score = -INFINITE;
+	int best_score = -INF;
 	Move best_move = 0;
 	bool has_legal = false;
 	size_t len = 0;
@@ -440,7 +440,7 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 	if (!has_legal) {
 		if (is_in_check(data->pos)) {
 			info->mate = (data->ply + 1) / 2 + 1;
-			return -INFINITE + data->ply;
+			return -INF + data->ply;
 		} else {
 			return 0;
 		}
@@ -454,7 +454,7 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 
 /*
  * This is the main negamax function with alpha beta pruning, it returns the
- * best score achievable for a position. It returns -INFINITE or 0 if the best
+ * best score achievable for a position. It returns -INF or 0 if the best
  * outcome calculated is a checkmate or stalemate, respectively, which means
  * that such outcome is unavoidable. In the case of checkmate it will
  * additionally set info->mate to the number of moves (full moves, not plies)
@@ -507,7 +507,7 @@ struct info *info, const struct parameters *params)
 
 	bool in_check = is_in_check(data->pos);
 
-	int best_score = -INFINITE;
+	int best_score = -INF;
 	Move best_move = 0;
 	bool has_legal = 0;
 	size_t len = 0;
@@ -568,7 +568,7 @@ struct info *info, const struct parameters *params)
 		}
 	}
 	/* If no good moves are found then just pick the first one as best to
-	 * store in the TT (since best_score starts at -INFINITE this only
+	 * store in the TT (since best_score starts at -INF this only
 	  * happens when all possibilities are genuinely bad.) */
 	if (!best_move && has_legal)
 		best_move = moves_ptr[0];
@@ -578,7 +578,7 @@ struct info *info, const struct parameters *params)
 	if (!has_legal) {
 		if (is_in_check(data->pos)) {
 			info->mate = (data->ply + 1) / 2 + 1;
-			return -INFINITE + data->ply;
+			return -INF + data->ply;
 		} else {
 			return 0;
 		}
@@ -637,7 +637,7 @@ static double get_elapsed_time(const struct timespec *ts1,
  * lead to checkmate or stalemate for the side to move, then any of these moves
  * is returned.
  * 
- * The main negamax function will return -INFINITE if a checkmate for the
+ * The main negamax function will return -INF if a checkmate for the
  * opposite side is unavoidable, and since it will also set the number of plies
  * to the mate in info, if we are searching for a mate we just have to return
  * the move that leads to this mate as the best move and set
@@ -671,7 +671,7 @@ static struct result search(const struct parameters *params)
 	result.found_mate = false;
 	result.best = result.nodes = 0;
 
-	int alpha = -INFINITE, beta = INFINITE;
+	int alpha = -INF, beta = INF;
 
 	size_t len;
 	Move *const moves = movegen_get_pseudo_legal_moves(params->pos, &len);
@@ -707,7 +707,7 @@ static struct result search(const struct parameters *params)
 			alpha = score;
 			result.best = move;
 		}
-		if (params->mate && alpha == INFINITE &&
+		if (params->mate && alpha == INF &&
 		    info.mate == params->mate) {
 			result.found_mate = true;
 			result.best = move;
@@ -727,7 +727,7 @@ static struct result search(const struct parameters *params)
 	info.cp = alpha;
 	info.flags = INFO_FLAG_DEPTH | INFO_FLAG_NODES | INFO_FLAG_NPS |
 	             INFO_FLAG_TIME;
-	if (alpha == INFINITE)
+	if (alpha == INF)
 		info.flags |= INFO_FLAG_MATE;
 	else
 		info.flags |= INFO_FLAG_CP;

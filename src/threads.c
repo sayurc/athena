@@ -1,4 +1,5 @@
 #ifdef _WIN32
+#include <windows.h>
 #else
 #define _XOPEN_SOURCE 700
 #include <pthread.h>
@@ -14,6 +15,51 @@
  * Win32 threads. I only implemented enough for the use case of this program.
  */
 
+#ifdef _WIN32
+int thrd_create(thrd_t *thr, thrd_start_t func, void *arg)
+{
+	*thr = CreateThread(NULL, 0, func, arg, NULL, NULL);
+	if (*thr)
+		return thrd_success;
+	else if (GetLastError() == ERROR_NOT_ENOUGH_MEMORY)
+		return thrd_nomem;
+	return thrd_error;
+}
+
+int thrd_join(thrd_t thr, int *res)
+{
+	int ret = WaitForSingleObject(thr, INFINITE);
+	if (ret == WAIT_FAILED)
+		return thrd_error;
+	ret = GetExitCodeThread(thr, res);
+	if (ret)
+		return thrd_success;
+	return thrd_error;
+}
+
+int mtx_init(mtx_t *mutex, int type)
+{
+	InitializeCriticalSection(mutex);
+	return thrd_success;
+}
+
+void mtx_destroy(mtx_t *mutex)
+{
+	DeleteCriticalSection(mutex);
+}
+
+int mtx_lock(mtx_t *mutex)
+{
+	EnterCriticalSection(mutex);
+	return thrd_success;
+}
+
+int mtx_unlock(mtx_t *mutex)
+{
+	LeaveCriticalSection(mutex);
+	return thrd_success;
+}
+#else
 struct func_wrapper {
 	thrd_start_t func;
 	void *arg;
@@ -96,3 +142,4 @@ int mtx_unlock(mtx_t *mutex)
 		return thrd_error;
 	return thrd_success;
 }
+#endif

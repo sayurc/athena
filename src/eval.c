@@ -21,7 +21,9 @@
 #include <stdbool.h>
 #include <stdio.h>
 
+#ifdef TEST
 #include <check.h>
+#endif
 
 #include "bit.h"
 #include "pos.h"

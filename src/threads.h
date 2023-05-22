@@ -2,14 +2,17 @@
 #define THREADS_H
 
 #ifdef _WIN32
+#include <windows.h>
 #else
 #include <pthread.h>
 #endif
 
+typedef int (*thrd_start_t)(void *);
 #ifdef _WIN32
+typedef HANDLE thrd_t;
+typedef CRITICAL_SECTION mtx_t;
 #else
 typedef pthread_t thrd_t;
-typedef int (*thrd_start_t)(void *);
 typedef pthread_mutex_t mtx_t;
 #endif
 
