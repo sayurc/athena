@@ -31,6 +31,7 @@
 
 #include "bit.h"
 #include "str.h"
+#include "threads.h"
 #include "pos.h"
 #include "move.h"
 #include "movegen.h"
@@ -38,7 +39,7 @@
 #include "uci.h"
 
 static struct search_argument search_arg;
-static pthread_mutex_t search_running_mtx = PTHREAD_MUTEX_INITIALIZER;
+static mtx_t search_running_mtx;
 static pthread_t search_thread;
 static bool search_running = false;
 static bool newgame_sent = false;
@@ -339,18 +340,16 @@ static void info(const struct info *info)
 
 static void quit(void)
 {
-	pthread_mutex_lock(&search_running_mtx);
+	mtx_lock(&search_running_mtx);
 	if (search_running) {
 		search_running = false;
-		pthread_mutex_unlock(&search_running_mtx);
-		if (pthread_join(search_thread, NULL)) {
+		mtx_unlock(&search_running_mtx);
+		if (thrd_join(search_thread, NULL)) {
 			fprintf(stderr, "Internal error.\n");
 			exit(1);
 		}
-		pthread_mutex_lock(&search_running_mtx);
-		pthread_mutex_unlock(&search_running_mtx);
 	} else {
-		pthread_mutex_unlock(&search_running_mtx);
+		mtx_unlock(&search_running_mtx);
 	}
 	if (search_arg.pos) {
 		pos_destroy(search_arg.pos);
@@ -370,18 +369,16 @@ static void quit(void)
 
 static void stop(void)
 {
-	pthread_mutex_lock(&search_running_mtx);
+	mtx_lock(&search_running_mtx);
 	if (search_running) {
 		search_running = false;
-		pthread_mutex_unlock(&search_running_mtx);
-		if (pthread_join(search_thread, NULL)) {
+		mtx_unlock(&search_running_mtx);
+		if (thrd_join(search_thread, NULL)) {
 			fprintf(stderr, "Internal error.\n");
 			exit(1);
 		}
-		pthread_mutex_lock(&search_running_mtx);
-		pthread_mutex_unlock(&search_running_mtx);
 	} else {
-		pthread_mutex_unlock(&search_running_mtx);
+		mtx_unlock(&search_running_mtx);
 	}
 }
 
@@ -439,7 +436,7 @@ static void go(void)
 		str = strtok(NULL, " ");
 	}
 
-	if (pthread_create(&search_thread, NULL, search_run, &search_arg)) {
+	if (thrd_create(&search_thread, search_run, &search_arg)) {
 		search_running = false;
 		perror("Athena");
 	}
@@ -709,7 +706,7 @@ bool uci_interpret(const char *str)
 		return ret;
 	}
 
-	if (search_running && strcmp(cmd, "stop") && strcmp(cmd, "quit")) {
+	if (search_running && (strcmp(cmd, "stop") || strcmp(cmd, "quit"))) {
 		free(split_str);
 		return ret;
 	}
@@ -783,6 +780,7 @@ char *uci_receive(bool *eof)
 
 void uci_loop(void)
 {
+	mtx_init(&search_running_mtx, mtx_plain);
 	bool quit = false;
 	while (!quit) {
 		bool eof = false;
@@ -794,4 +792,5 @@ void uci_loop(void)
 			free(str);
 		}
 	}
+	mtx_destroy(&search_running_mtx);
 }

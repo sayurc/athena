@@ -29,6 +29,7 @@
 #include <check.h>
 
 #include "bit.h"
+#include "threads.h"
 #include "pos.h"
 #include "move.h"
 #include "movegen.h"
@@ -74,7 +75,7 @@ struct parameters {
 	Move *moves;
 	int num_moves;
 	bool *running;
-	pthread_mutex_t *running_mtx;
+	mtx_t *running_mtx;
 	void (*output)(const struct info *);
 };
 
@@ -343,14 +344,14 @@ static bool has_legal_moves(const Move *moves, size_t len, Position *pos)
 static int qsearch(int depth, int alpha, int beta, struct search_data *data,
                    struct info *info, const struct parameters *params)
 {
-	pthread_mutex_lock(params->running_mtx);
+	mtx_lock(params->running_mtx);
 	if (data->nodes >= params->nodes || data->ply > MAX_PLY)
 		*params->running = false;
 	if (!*params->running || data->nodes >= params->nodes) {
-		pthread_mutex_unlock(params->running_mtx);
+		mtx_unlock(params->running_mtx);
 		return alpha;
 	}
-	pthread_mutex_unlock(params->running_mtx);
+	mtx_unlock(params->running_mtx);
 
 	++data->nodes;
 	++info->nodes;
@@ -464,7 +465,7 @@ struct info *info, const struct parameters *params)
 {
 	struct timespec now;
 	timespec_get(&now, TIME_UTC);
-	pthread_mutex_lock(params->running_mtx);
+	mtx_lock(params->running_mtx);
 	if (params->limited_time) {
 		if (now.tv_sec > params->stop_time.tv_sec ||
 		    (now.tv_sec == params->stop_time.tv_sec &&
@@ -474,10 +475,10 @@ struct info *info, const struct parameters *params)
 	if (data->nodes >= params->nodes || data->ply > MAX_PLY)
 		*params->running = false;
 	if (!*params->running) {
-		pthread_mutex_unlock(params->running_mtx);
+		mtx_unlock(params->running_mtx);
 		return alpha;
 	}
-	pthread_mutex_unlock(params->running_mtx);
+	mtx_unlock(params->running_mtx);
 
 	++data->nodes;
 	++info->nodes;
@@ -680,14 +681,14 @@ static struct result search(const struct parameters *params)
 
 	timespec_get(&ts1, TIME_UTC);
 	for (size_t i = 0; i < len; ++i) {
-		pthread_mutex_lock(params->running_mtx);
+		mtx_lock(params->running_mtx);
 		if (data.nodes >= params->nodes)
 			*params->running = false;
 		if (!*params->running) {
-			pthread_mutex_unlock(params->running_mtx);
+			mtx_unlock(params->running_mtx);
 			break;
 		}
-		pthread_mutex_unlock(params->running_mtx);
+		mtx_unlock(params->running_mtx);
 
 		Move move = moves[i];
 		if (!move_is_legal(data.pos, move))
@@ -845,7 +846,7 @@ static void add_time(struct timespec *ts, long long time)
  * enforce the threefold repetition rule so they should be in the order they
  * happened in the game.
  */
-void *search_run(void *data)
+int search_run(void *data)
 {
 	struct search_argument *const arg = data;
 
@@ -866,10 +867,10 @@ void *search_run(void *data)
 		params.pos = arg->pos;
 		params.output = arg->info_sender;
 		perft(&params);
-		pthread_mutex_lock(arg->running_mtx);
+		mtx_lock(arg->running_mtx);
 		*arg->running = false;
-		pthread_mutex_unlock(arg->running_mtx);
-		return NULL;
+		mtx_unlock(arg->running_mtx);
+		return 0;
 	}
 
 	Color color = pos_get_side_to_move(arg->pos);
@@ -912,12 +913,12 @@ void *search_run(void *data)
 
 		nodes -= result.nodes;
 
-		pthread_mutex_lock(arg->running_mtx);
+		mtx_lock(arg->running_mtx);
 		if (!*arg->running) {
-			pthread_mutex_unlock(arg->running_mtx);
+			mtx_unlock(arg->running_mtx);
 			break;
 		}
-		pthread_mutex_unlock(arg->running_mtx);
+		mtx_unlock(arg->running_mtx);
 
 		best_move = result.best;
 		if (params.mate && result.found_mate)
@@ -925,9 +926,9 @@ void *search_run(void *data)
 	}
 	arg->best_move_sender(best_move);
 
-	pthread_mutex_lock(arg->running_mtx);
+	mtx_lock(arg->running_mtx);
 	*arg->running = false;
-	pthread_mutex_unlock(arg->running_mtx);
+	mtx_unlock(arg->running_mtx);
 
-	return NULL;
+	return 0;
 }
