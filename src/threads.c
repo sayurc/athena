@@ -114,7 +114,7 @@ int mtx_init(mtx_t *mutex, int type)
 	int err = pthread_mutexattr_init(&mtx_attr);
 	if (err)
 		return thrd_error;
-	if (type | mtx_recursive)
+	if (type & mtx_recursive)
 		pthread_mutexattr_settype(&mtx_attr, PTHREAD_MUTEX_RECURSIVE);
 	err = pthread_mutex_init(mutex, NULL);
 	if (err)
