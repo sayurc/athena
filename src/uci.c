@@ -344,7 +344,7 @@ static void quit(void)
 	if (search_running) {
 		search_running = false;
 		mtx_unlock(&search_running_mtx);
-		if (thrd_join(search_thread, NULL)) {
+		if (thrd_join(search_thread, NULL) == thrd_error) {
 			fprintf(stderr, "Internal error.\n");
 			exit(1);
 		}
@@ -373,7 +373,7 @@ static void stop(void)
 	if (search_running) {
 		search_running = false;
 		mtx_unlock(&search_running_mtx);
-		if (thrd_join(search_thread, NULL)) {
+		if (thrd_join(search_thread, NULL) == thrd_error) {
 			fprintf(stderr, "Internal error.\n");
 			exit(1);
 		}
@@ -436,7 +436,8 @@ static void go(void)
 		str = strtok(NULL, " ");
 	}
 
-	if (thrd_create(&search_thread, search_run, &search_arg)) {
+	if (thrd_create(&search_thread,
+	                search_run, &search_arg) == thrd_error) {
 		search_running = false;
 		perror("Athena");
 	}
