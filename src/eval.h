@@ -29,7 +29,6 @@ int eval_evaluate(const Position *pos);
 int eval_get_average_mvv_lva_score(void);
 int eval_opening_evaluate(const Position *pos);
 int eval_evaluate_move(Move move, Position *pos);
-int eval_evaluate_qmove(Move move, Position *pos);
 void eval_init(void);
 
 #endif

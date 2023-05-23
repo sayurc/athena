@@ -303,7 +303,7 @@ struct search_data *data, bool *ended)
 				return i;
 		}
 
-		int score = eval_evaluate_qmove(move, data->pos);
+		int score = eval_evaluate_move(move, data->pos);
 		if (score > best_score) {
 			best_idx = i;
 			best_score = score;

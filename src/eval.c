@@ -184,13 +184,13 @@ static struct score sq_tables[2][6][64];
  * These tables store the number of possible moves for a piece when the board
  * contains only that piece, so no occupancy for sliding pieces or pawns.
  */
-static i8 white_pawn_number_of_possible_moves[64];
-static i8 black_pawn_number_of_possible_moves[64];
-static i8 knight_number_of_possible_moves[64];
-static i8 rook_number_of_possible_moves[64];
-static i8 bishop_number_of_possible_moves[64];
-static i8 queen_number_of_possible_moves[64];
-static i8 king_number_of_possible_moves[64];
+static i8 white_pawn_num_moves[64];
+static i8 black_pawn_num_moves[64];
+static i8 knight_num_moves[64];
+static i8 rook_num_moves[64];
+static i8 bishop_num_moves[64];
+static i8 queen_num_moves[64];
+static i8 king_num_moves[64];
 
 /*
  * These are the intrinsic point value of each piece in the centipawn scale, in
@@ -208,13 +208,13 @@ static const int point_value[] = {
 static void init_possible_moves_table(void)
 {
 	for (Square sq = A1; sq <= H8; ++sq) {
-		white_pawn_number_of_possible_moves[sq] = movegen_get_number_of_moves_empty_board(PIECE_WHITE_PAWN, sq);
-		black_pawn_number_of_possible_moves[sq] = movegen_get_number_of_moves_empty_board(PIECE_BLACK_PAWN, sq);
-		knight_number_of_possible_moves[sq] = movegen_get_number_of_moves_empty_board(PIECE_WHITE_KNIGHT, sq);
-		rook_number_of_possible_moves[sq] = movegen_get_number_of_moves_empty_board(PIECE_WHITE_ROOK, sq);
-		bishop_number_of_possible_moves[sq] = movegen_get_number_of_moves_empty_board(PIECE_WHITE_BISHOP, sq);
-		queen_number_of_possible_moves[sq] = movegen_get_number_of_moves_empty_board(PIECE_WHITE_QUEEN, sq);
-		king_number_of_possible_moves[sq] = movegen_get_number_of_moves_empty_board(PIECE_WHITE_KING, sq);
+		white_pawn_num_moves[sq] = movegen_get_number_of_moves_empty_board(PIECE_WHITE_PAWN, sq);
+		black_pawn_num_moves[sq] = movegen_get_number_of_moves_empty_board(PIECE_BLACK_PAWN, sq);
+		knight_num_moves[sq] = movegen_get_number_of_moves_empty_board(PIECE_WHITE_KNIGHT, sq);
+		rook_num_moves[sq] = movegen_get_number_of_moves_empty_board(PIECE_WHITE_ROOK, sq);
+		bishop_num_moves[sq] = movegen_get_number_of_moves_empty_board(PIECE_WHITE_BISHOP, sq);
+		queen_num_moves[sq] = movegen_get_number_of_moves_empty_board(PIECE_WHITE_QUEEN, sq);
+		king_num_moves[sq] = movegen_get_number_of_moves_empty_board(PIECE_WHITE_KING, sq);
 	}
 }
 
@@ -278,7 +278,8 @@ static u64 get_least_valuable_attackers(Square sq, const Position *pos)
 	u64 ret = 0;
 	Piece least_piece = PIECE_NONE;
 	for (PieceType pt = PIECE_TYPE_PAWN; pt <= PIECE_TYPE_KING; ++pt) {
-		const Piece piece = pos_make_piece(pt, pos_get_side_to_move(pos));
+		const Piece piece = pos_make_piece(pt,
+		                                   pos_get_side_to_move(pos));
 		const u64 bb = pos_get_piece_bitboard(pos, piece);
 		if (bb & attackers) {
 			if (!ret || get_attacker_value(piece) >
@@ -291,114 +292,31 @@ static u64 get_least_valuable_attackers(Square sq, const Position *pos)
 	return ret;
 }
 
-static int estimate_positioning_gain(Move move, Position *pos)
+static struct score compute_mvv_lva(Move move, const Position *pos)
 {
+	const MoveType move_type = move_get_type(move);
 	const Square target = move_get_target(move);
 	const Square origin = move_get_origin(move);
-	const Piece piece = pos_get_piece_at(pos, origin);
-	const PieceType piece_type = pos_get_piece_type(piece);
-	const Color piece_color = pos_get_side_to_move(pos);
-
-	int score = 0;
-
-	if (movegen_is_square_attacked(target, !piece_color, pos))
-		score -= get_captured_piece_value(piece);
+	const Piece attacker = pos_get_piece_at(pos, origin);
+	const Color attacker_color = pos_get_piece_color(attacker);
+	Piece attacked;
+	if (move_type == MOVE_EP_CAPTURE)
+		attacked = attacker_color == COLOR_WHITE ? PIECE_BLACK_PAWN :
+		                                           PIECE_WHITE_PAWN;
 	else
-		score += 1;
-	if (movegen_is_square_attacked(origin, !piece_color, pos))
-		score += get_captured_piece_value(piece);
-
-	if (piece_type == PIECE_TYPE_PAWN) {
-		score += piece_color == COLOR_WHITE ?
-		         pos_get_rank(target) :
-		         (RANK_7 - pos_get_rank(target));
-	}
-
-	score += sq_tables[piece_color][piece_type][target].mg;
-	score -= sq_tables[piece_color][piece_type][origin].mg;
+		attacked = pos_get_piece_at(pos, target);
+	const int tmp = get_captured_piece_value(attacked) +
+	                get_attacker_value(attacker);
+	struct score score = {
+		.mg = tmp,
+		.eg = tmp,
+	};
 
 	return score;
 }
 
-static int estimate_mobility_gain(Move move, Position *pos)
-{
-	i8 *number_of_possible_moves[] = {
-		[PIECE_TYPE_PAWN  ] = white_pawn_number_of_possible_moves,
-		[PIECE_TYPE_KNIGHT] = knight_number_of_possible_moves,
-		[PIECE_TYPE_ROOK  ] = rook_number_of_possible_moves,
-		[PIECE_TYPE_BISHOP] = bishop_number_of_possible_moves,
-		[PIECE_TYPE_QUEEN ] = queen_number_of_possible_moves,
-		[PIECE_TYPE_KING  ] = king_number_of_possible_moves,
-	};
-	const Square target = move_get_target(move);
-	const Square origin = move_get_origin(move);
-	const Piece piece = pos_get_piece_at(pos, origin);
-	const PieceType piece_type = pos_get_piece_type(piece);
-	const Color piece_color = pos_get_side_to_move(pos);
-
-	if (piece_color == COLOR_BLACK)
-		number_of_possible_moves[PIECE_TYPE_PAWN] = black_pawn_number_of_possible_moves;
-
-	int mobility = 0;
-	/* In captures the oponent loses mobility, and as a consequence we gain
-	 * mobility points. */
-	if (move_is_capture(move)) {
-		const MoveType cap_type = move_get_type(move);
-		/* The captured piece is not at the target square in en passant
-		 * captures so we have to treat it separately. */
-		if (cap_type != MOVE_EP_CAPTURE) {
-			const Piece cap_piece = pos_get_piece_at(pos, target);
-			const PieceType cap_piece_type = pos_get_piece_type(cap_piece);
-			mobility += number_of_possible_moves[cap_piece_type][target];
-		}
-		
-		/* If it's a promotion then use the piece the pawn was promoted
-		 * to. */
-		if (move_is_promotion(move)) {
-			const PieceType promoted_to = move_get_promotion_piece_type(move);
-			mobility += number_of_possible_moves[promoted_to][target];
-		} else if (cap_type == MOVE_EP_CAPTURE) {
-			mobility += number_of_possible_moves[PIECE_TYPE_PAWN][target];
-		} else {
-			mobility += number_of_possible_moves[piece_type][target];
-		}
-	} else {
-		mobility += number_of_possible_moves[piece_type][target];
-	}
-	mobility -= number_of_possible_moves[piece_type][origin];
-
-	const Rank rank = pos_get_rank(target);
-	const File file = pos_get_file(target);
-	/* Moving to the center of the board means more squares to attack. */
-	if (piece_type != PIECE_TYPE_PAWN) {
-		if ((rank == RANK_5 || rank == RANK_4) && (file == FILE_D || file == FILE_E))
-			mobility += 10;
-		else if ((rank == RANK_6 || rank == RANK_3) && (file == FILE_C || file == FILE_F))
-			mobility += 5;
-	} else {
-		if (file >= FILE_B && file <= FILE_G)
-			mobility += 2;
-	}
-
-	return mobility;
-}
-
-static int compute_mvv_lva(Move move, const Position *pos)
-{
-	const Square target = move_get_target(move);
-	const Square origin = move_get_origin(move);
-	const Piece attacked = pos_get_piece_at(pos, target);
-	const Piece attacker = pos_get_piece_at(pos, origin);
-	const PieceType attacker_type = pos_get_piece_type(attacker);
-	const Color attacker_color = pos_get_piece_color(attacker);
-
-	return get_captured_piece_value(attacked) +
-	       get_attacker_value(attacker) +
-	       sq_tables[attacker_color][attacker_type][target].mg;
-}
-
 /*
- * Returns the total score in piece value of a series of exchanges on a square
+ * Returns the total score in centipawns of a series of exchanges on a square
  * starting with the least valued pieces. If there are many of the same pieces
  * then any of them is used.
  * The score starts at 0 and is incremented by the value of captured enemy
@@ -433,20 +351,6 @@ static int evaluate_exchange(Square target, Position *pos)
 		move_undo(pos, move);
 	}
 	return value;
-}
-
-static int estimate_material_gain(Move move, Position *pos)
-{
-	if (move_get_type(move) == MOVE_CAPTURE) {
-		move_do(pos, move);
-		const Piece cap_piece = pos_get_captured_piece(pos);
-		const Square target = move_get_target(move);
-		int score = get_captured_piece_value(cap_piece) - evaluate_exchange(target, pos);
-		move_undo(pos, move);
-
-		return score + compute_mvv_lva(move, pos);
-	}
-	return 0;
 }
 
 static int compute_material(const Position *pos)
@@ -486,6 +390,43 @@ static int compute_material(const Position *pos)
 
 	return material;
 }
+static struct score evaluate_capture(Move move, Position *pos)
+{
+	const Square origin = move_get_origin(move);
+	const Square target = move_get_target(move);
+	const Piece piece = pos_get_piece_at(pos, origin);
+	const PieceType pt = pos_get_piece_type(piece);
+	const MoveType move_type = move_get_type(move);
+
+	PieceType cap_piece_type;
+	if (move_type == MOVE_EP_CAPTURE) {
+		cap_piece_type = PIECE_TYPE_PAWN;
+	} else {
+		Piece cap_piece = pos_get_piece_at(pos, target);
+		cap_piece_type = pos_get_piece_type(cap_piece);
+	}
+
+	struct score score = compute_mvv_lva(move, pos);
+	if (point_value[pt] < point_value[PIECE_TYPE_ROOK] &&
+	    point_value[cap_piece_type] >= point_value[PIECE_TYPE_ROOK]) {
+		score.mg += point_value[cap_piece_type];
+		score.eg += point_value[cap_piece_type];
+		if (move_is_promotion(move)) {
+			score.mg += point_value[PIECE_TYPE_QUEEN];
+			score.eg += point_value[PIECE_TYPE_QUEEN];
+		}
+	} else {
+		move_do(pos, move);
+		Piece cap_piece = pos_get_captured_piece(pos);
+		const int tmp = get_captured_piece_value(cap_piece) -
+		                evaluate_exchange(target, pos);
+		score.mg += tmp;
+		score.eg += tmp;
+		move_undo(pos, move);
+	}
+
+	return score;
+}
 
 int eval_evaluate(const Position *pos)
 {
@@ -510,59 +451,54 @@ int eval_evaluate(const Position *pos)
 		}
 	}
 
-	score.mg += compute_material(pos);
-	score.eg += compute_material(pos);
+	const int material = compute_material(pos);
+	score.mg += material;
+	score.eg += material;
 
 	return ((score.mg * (256 - phase)) + (score.eg * phase)) / 256;
 }
 
+/*
+ * This function estimates the expected score gain after a move.
+ */
 int eval_evaluate_move(Move move, Position *pos)
 {
-	const int material = estimate_material_gain(move, pos);
-	const int mobility = estimate_mobility_gain(move, pos);
-	const int positioning = estimate_positioning_gain(move, pos);
-
-	return material +
-	       mobility +
-	       positioning;
-}
-
-/*
- * This function is used to evaluate moves in the quiescence search only, so it
- * works only for captures.
- */
-int eval_evaluate_qmove(Move move, Position *pos)
-{
+	const int phase = pos_get_phase(pos);
 	const Square origin = move_get_origin(move);
 	const Square target = move_get_target(move);
 	const Piece piece = pos_get_piece_at(pos, origin);
+	const Color color = pos_get_piece_color(piece);
 	const PieceType pt = pos_get_piece_type(piece);
-	const MoveType move_type = move_get_type(move);
 
-	PieceType cap_piece_type;
-	if (move_type == MOVE_EP_CAPTURE) {
-		cap_piece_type = PIECE_TYPE_PAWN;
+	struct score score = {0, 0};
+
+	if (move_is_promotion(move)) {
+		/* Promotions with captures are already handled by SEE so we
+		 * shouldn't do anything about them here. */
+		if (!move_is_capture(move)) {
+			const int tmp = point_value[PIECE_TYPE_QUEEN] -
+			                point_value[PIECE_TYPE_PAWN];
+			score.mg += tmp;
+			score.eg += tmp;
+		}
+		/* A queen is so much more valuable than a pawn that we just
+		 * don't care about where the pawn was. */
+		score.mg += sq_tables[color][PIECE_TYPE_QUEEN][target].mg;
+		score.eg += sq_tables[color][PIECE_TYPE_QUEEN][target].eg;
 	} else {
-		Piece cap_piece = pos_get_piece_at(pos, target);
-		cap_piece_type = pos_get_piece_type(cap_piece);
+		score.mg += sq_tables[color][pt][target].mg;
+		score.mg -= sq_tables[color][pt][origin].mg;
+		score.eg += sq_tables[color][pt][target].eg;
+		score.eg -= sq_tables[color][pt][origin].eg;
 	}
 
-	int score = 0;
-
-	score += compute_mvv_lva(move, pos);
-	if (point_value[pt] < point_value[PIECE_TYPE_ROOK] &&
-	    point_value[cap_piece_type] >= point_value[PIECE_TYPE_ROOK]) {
-		score += point_value[cap_piece_type];
-		if (move_is_promotion(move))
-			score += point_value[PIECE_TYPE_QUEEN];
-	} else {
-		move_do(pos, move);
-		Piece cap_piece = pos_get_captured_piece(pos);
-		score += get_captured_piece_value(cap_piece) - evaluate_exchange(target, pos);
-		move_undo(pos, move);
+	if (move_is_capture(move)) {
+		const struct score cap_score = evaluate_capture(move, pos);
+		score.mg += cap_score.mg;
+		score.eg += cap_score.eg;
 	}
 
-	return score;
+	return ((score.mg * (256 - phase)) + (score.eg * phase)) / 256;
 }
 
 void eval_init(void)
