@@ -367,7 +367,7 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 		if (pos_data.depth >= depth &&
 		    ((type == NODE_TYPE_CUT && score >= beta) ||
 		     (type == NODE_TYPE_ALL && score <= alpha)))
-			return pos_data.score;
+			return score;
 	}
 
 	int stand_pat = eval_evaluate(data->pos);
