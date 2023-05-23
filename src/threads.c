@@ -99,7 +99,8 @@ int thrd_join(thrd_t thr, int *res)
 		free(wrapper);
 		return thrd_error;
 	}
-	*res = wrapper->ret;
+	if (res)
+		*res = wrapper->ret;
 	free(wrapper);
 	return thrd_success;
 }
