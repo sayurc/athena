@@ -23,6 +23,7 @@
 #include <stdbool.h>
 #include <time.h>
 #include <math.h>
+#include <string.h>
 
 #ifdef TEST
 #include <check.h>
