@@ -455,11 +455,11 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 
 /*
  * This is the main negamax function with alpha beta pruning, it returns the
- * best score achievable for a position. It returns -INF or 0 if the best
- * outcome calculated is a checkmate or stalemate, respectively, which means
- * that such outcome is unavoidable. In the case of checkmate it will
- * additionally set info->mate to the number of moves (full moves, not plies)
- * for checkmate.
+ * best score achievable for a position. It returns a value less than or equal
+ * to -INF or 0 if the best outcome calculated is a checkmate or stalemate,
+ * respectively, which means that such outcome is unavoidable. In the case of
+ * checkmate it will additionally set info->mate to the number of moves
+ * (full moves, not plies) for checkmate.
  */
 static int negamax(int depth, int alpha, int beta, struct search_data *data,
 struct info *info, const struct parameters *params)
@@ -532,14 +532,26 @@ struct info *info, const struct parameters *params)
 			continue;
 		has_legal = true;
 
-		/* Futility pruning. If the position score plus some safety
-		 * margin is not enough to raise alpha, then skip all the next
-		 * moves. The safety margin is proportional to the depth with
-		 * proportionality constant equal to 1.5 centipawns so that
+		/* Futility pruning. If the static position score plus some
+		 * safety margin is not enough to raise alpha, then skip all the
+		 * next moves. The safety margin is proportional to the depth
+		 * with proportionality constant equal to 1.5 centipawns so that
 		 * upper nodes are less likely to be pruned. */
 		if (move_is_quiet(move) && !in_check) {
 			if (eval + 150 * depth <= alpha)
 				break;
+		}
+
+		/* Reverse futility pruning. It works similarly to the regular
+		 * futility pruning, but it's based on beta instead of alpha.
+		 * If the static position score minus some margin can beat beta,
+		 * then skip all next moves because the full evaluation will
+		 * most likely beat beta. */
+		if (move_is_quiet(move) && !in_check) {
+			if (eval - 150 * depth >= beta) {
+				alpha = eval - 150;
+				break;
+			}
 		}
 
 		move_do(data->pos, move);
@@ -708,7 +720,7 @@ static struct result search(const struct parameters *params)
 			alpha = score;
 			result.best = move;
 		}
-		if (params->mate && alpha == INF &&
+		if (params->mate && alpha >= INF - MAX_PLY &&
 		    info.mate == params->mate) {
 			result.found_mate = true;
 			result.best = move;
@@ -728,7 +740,7 @@ static struct result search(const struct parameters *params)
 	info.cp = alpha;
 	info.flags = INFO_FLAG_DEPTH | INFO_FLAG_NODES | INFO_FLAG_NPS |
 	             INFO_FLAG_TIME;
-	if (alpha == INF)
+	if (alpha >= INF - MAX_PLY)
 		info.flags |= INFO_FLAG_MATE;
 	else
 		info.flags |= INFO_FLAG_CP;
