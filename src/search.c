@@ -253,7 +253,7 @@ struct search_data *data)
 		const Move move = moves[i];
 		NodeData pos_data;
 		if (tt_get(&pos_data, data->pos) &&
-		    pos_data.type == NODE_TYPE_PV) {
+		    pos_data.type == NODE_TYPE_EXACT) {
 			if (move == pos_data.best_move)
 				return i;
 		}
@@ -298,7 +298,7 @@ struct search_data *data, bool *ended)
 
 		NodeData pos_data;
 		if (tt_get(&pos_data, data->pos) &&
-		    pos_data.type == NODE_TYPE_PV) {
+		    pos_data.type == NODE_TYPE_EXACT) {
 			if (move == pos_data.best_move)
 				return i;
 		}
@@ -333,6 +333,41 @@ static bool has_legal_moves(const Move *moves, size_t len, Position *pos)
 }
 
 /*
+ * We can't store mate scores in the TT directly because the same position can
+ * be found in different plies from the root, which means that if we use the
+ * mate score in a transposition with larger ply than the node that stored the
+ * entry we will get a larger score even though the mate takes longer. This
+ * would make the engine choose longer mates and if it keeps choosing longer
+ * mates it might never deliver mate.
+ *
+ * So instead we store the mate score based on the number of plies from the
+ * current node. This function adjusts the mate score for the TT and if the
+ * score is not mate it is left unchanged.
+ */
+static int score_to_ttscore(int score, int ply)
+{
+	if (score >= INF - MAX_PLY)
+		return score + ply;
+	else if (score <= -INF + MAX_PLY)
+		return score - ply;
+	else
+		return score;
+}
+
+/*
+ * This is the inverse of score_to_ttscore.
+ */
+static int ttscore_to_score(int score, int ply)
+{
+	if (score >= INF - MAX_PLY)
+		return score - ply;
+	else if (score <= INF + MAX_PLY)
+		return score + ply;
+	else
+		return score;
+}
+
+/*
  * The quiescence search is performed at the leaf nodes of the main search. It
  * searches for the best quiet position after a sequence of captures, so only
  * capturing moves are made. This way we can avoid the horizon effect where the
@@ -361,13 +396,18 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 		return 0;
 
 	NodeData pos_data;
-	if (tt_get(&pos_data, data->pos)) {
-		const NodeType type = pos_data.type;
-		const int score = pos_data.score;
-		if (pos_data.depth >= depth &&
-		    ((type == NODE_TYPE_CUT && score >= beta) ||
-		     (type == NODE_TYPE_ALL && score <= alpha)))
+	if (tt_get(&pos_data, data->pos) && pos_data.depth >= depth) {
+		const int score = ttscore_to_score(pos_data.score, data->ply);
+		switch (pos_data.type) {
+		case NODE_TYPE_EXACT:
 			return score;
+		case NODE_TYPE_ALPHA_UNCHANGED:
+			beta = beta < score ? beta : score;
+			break;
+		case NODE_TYPE_CUT:
+			alpha = alpha > score ? alpha : score;
+			break;
+		}
 	}
 
 	int stand_pat = eval_evaluate(data->pos);
@@ -376,7 +416,7 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 	if (alpha < stand_pat)
 		alpha = stand_pat;
 
-	NodeType type = NODE_TYPE_ALL;
+	NodeType type = NODE_TYPE_ALPHA_UNCHANGED;
 	int best_score = -INF;
 	Move best_move = 0;
 	bool has_legal = false;
@@ -426,7 +466,7 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 		}
 		if (best_score > alpha) {
 			alpha = best_score;
-			type = NODE_TYPE_PV;
+			type = NODE_TYPE_EXACT;
 		}
 		if (alpha >= beta) {
 			type = NODE_TYPE_CUT;
@@ -441,13 +481,15 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 	if (!has_legal) {
 		if (is_in_check(data->pos)) {
 			info->mate = (data->ply + 1) / 2 + 1;
-			return -INF + data->ply;
+			best_score = -INF + data->ply;
+			alpha = best_score;
 		} else {
-			return 0;
+			best_score = 0;
+			alpha = best_score;
 		}
 	}
 
-	tt_entry_init(&pos_data, alpha, depth, type, best_move, data->pos);
+	tt_entry_init(&pos_data, score_to_ttscore(best_score, data->ply), depth, type, best_move, data->pos);
 	tt_store(&pos_data);
 
 	return alpha;
@@ -488,13 +530,18 @@ struct info *info, const struct parameters *params)
 		return 0;
 
 	NodeData pos_data;
-	if (tt_get(&pos_data, data->pos)) {
-		const NodeType type = pos_data.type;
-		const int score = pos_data.score;
-		if (pos_data.depth >= depth &&
-		    ((type == NODE_TYPE_CUT && score >= beta) ||
-		     (type == NODE_TYPE_ALL && score <= alpha)))
-			return pos_data.score;
+	if (tt_get(&pos_data, data->pos) && pos_data.depth >= depth) {
+		const int score = ttscore_to_score(pos_data.score, data->ply);
+		switch (pos_data.type) {
+		case NODE_TYPE_EXACT:
+			return score;
+		case NODE_TYPE_ALPHA_UNCHANGED:
+			beta = beta < score ? beta : score;
+			break;
+		case NODE_TYPE_CUT:
+			alpha = alpha > score ? alpha : score;
+			break;
+		}
 	}
 	if (!depth) {
 		/* The quiescence search will count this node so we decrement
@@ -504,7 +551,7 @@ struct info *info, const struct parameters *params)
 		return qsearch(depth, alpha, beta, data, info, params);
 	}
 
-	NodeType type = NODE_TYPE_ALL;
+	NodeType type = NODE_TYPE_ALPHA_UNCHANGED;
 
 	bool in_check = is_in_check(data->pos);
 
@@ -537,7 +584,7 @@ struct info *info, const struct parameters *params)
 		 * next moves. The safety margin is proportional to the depth
 		 * with proportionality constant equal to 1.5 centipawns so that
 		 * upper nodes are less likely to be pruned. */
-		if (move_is_quiet(move) && !in_check) {
+		if (move_is_quiet(move) && !in_check && abs(beta) < INF - MAX_PLY) {
 			if (eval + 150 * depth <= alpha)
 				break;
 		}
@@ -547,7 +594,7 @@ struct info *info, const struct parameters *params)
 		 * If the static position score minus some margin can beat beta,
 		 * then skip all next moves because the full evaluation will
 		 * most likely beat beta. */
-		if (move_is_quiet(move) && !in_check) {
+		if (move_is_quiet(move) && !in_check && abs(beta) < INF - MAX_PLY) {
 			if (eval - 150 * depth >= beta) {
 				alpha = eval - 150;
 				break;
@@ -571,7 +618,7 @@ struct info *info, const struct parameters *params)
 		}
 		if (best_score > alpha) {
 			alpha = best_score;
-			type = NODE_TYPE_PV;
+			type = NODE_TYPE_EXACT;
 		}
 		if (alpha >= beta) {
 			if (!move_is_capture(move))
@@ -591,13 +638,15 @@ struct info *info, const struct parameters *params)
 	if (!has_legal) {
 		if (is_in_check(data->pos)) {
 			info->mate = (data->ply + 1) / 2 + 1;
-			return -INF + data->ply;
+			best_score = -INF + data->ply;
+			alpha = best_score;
 		} else {
-			return 0;
+			best_score = 0;
+			alpha = best_score;
 		}
 	}
 
-	tt_entry_init(&pos_data, best_score, depth, type, best_move, data->pos);
+	tt_entry_init(&pos_data, score_to_ttscore(best_score, data->ply), depth, type, best_move, data->pos);
 	tt_store(&pos_data);
 	return alpha;
 }
@@ -708,12 +757,14 @@ static struct result search(const struct parameters *params)
 			continue;
 
 		move_do(data.pos, move);
+		++data.ply;
 		inc_pos_cnt(data.pos_cnt, data.pos);
 		data.move_made[data.ply] = move;
 		tt_prefetch();
 		int score = -negamax(params->depth - 1, -beta, -alpha, &data,
 		                     &info, params);
 		dec_pos_cnt(data.pos_cnt, data.pos);
+		--data.ply;
 		move_undo(data.pos, move);
 
 		if (score > alpha) {
@@ -726,8 +777,8 @@ static struct result search(const struct parameters *params)
 			result.best = move;
 			break;
 		}
-		if (alpha >= beta)
-			break;
+		//if (alpha >= beta)
+			//break;
 	}
 	timespec_get(&ts2, TIME_UTC);
 

@@ -36,9 +36,9 @@
  * this case alpha is returned as the score so the score is an upper bound.
  */
 typedef enum node_type {
-	NODE_TYPE_PV,
+	NODE_TYPE_EXACT,
 	NODE_TYPE_CUT,
-	NODE_TYPE_ALL,
+	NODE_TYPE_ALPHA_UNCHANGED,
 } NodeType;
 
 typedef struct node_data {

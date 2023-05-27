@@ -428,6 +428,34 @@ static struct score evaluate_capture(Move move, Position *pos)
 	return score;
 }
 
+/*
+ * Calculates the smallest Chebyshev distance from the king to a pawn. This is
+ * useful in the end game where rook attacks are a major threat. The distance
+ * ranges from 0 to 5 where 0 is closest to the king and 5 farthest.
+ */
+static int get_smallest_pawn_distance(const Position *pos, Color color)
+{
+	const Square king_sq = pos_get_king_square(pos, color);
+	const File king_file = pos_get_file(king_sq);
+	const Rank king_rank = pos_get_rank(king_sq);
+	const Piece pawn = pos_make_piece(PIECE_TYPE_PAWN, color);
+
+	u64 pawn_bb = pos_get_piece_bitboard(pos, pawn) &
+	              pos_get_color_bitboard(pos, color);
+	int dist = 6;
+	while (pawn_bb) {
+		const Square sq = unset_ls1b(&pawn_bb);
+		const File file = pos_get_file(sq);
+		const Rank rank = pos_get_rank(sq);
+		const int file_dist = abs((int)king_file - (int)file);
+		const int rank_dist = abs((int)king_rank - (int)rank);
+		const int tmp = file_dist > rank_dist ? file_dist : rank_dist;
+		if (tmp < dist)
+			dist = tmp;
+	}
+	return dist - 1;
+}
+
 int eval_evaluate(const Position *pos)
 {
 	const Color color = pos_get_side_to_move(pos);
@@ -454,6 +482,9 @@ int eval_evaluate(const Position *pos)
 	const int material = compute_material(pos);
 	score.mg += material;
 	score.eg += material;
+
+	score.eg += 16 * get_smallest_pawn_distance(pos, !color);
+	score.eg -= 16 * get_smallest_pawn_distance(pos, color);
 
 	return ((score.mg * (256 - phase)) + (score.eg * phase)) / 256;
 }
