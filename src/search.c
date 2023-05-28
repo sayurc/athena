@@ -401,9 +401,9 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 		switch (pos_data.type) {
 		case NODE_TYPE_EXACT:
 			return score;
-		case NODE_TYPE_ALPHA_UNCHANGED:
-			beta = beta < score ? beta : score;
-			break;
+		//case NODE_TYPE_ALPHA_UNCHANGED:
+			//beta = beta < score ? beta : score;
+			//break;
 		case NODE_TYPE_CUT:
 			alpha = alpha > score ? alpha : score;
 			break;
@@ -463,10 +463,10 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 		if (score > best_score) {
 			best_score = score;
 			best_move = move;
-		}
-		if (best_score > alpha) {
-			alpha = best_score;
-			type = NODE_TYPE_EXACT;
+			if (score > alpha) {
+				alpha = best_score;
+				type = NODE_TYPE_EXACT;
+			}
 		}
 		if (alpha >= beta) {
 			type = NODE_TYPE_CUT;
@@ -492,7 +492,7 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 	tt_entry_init(&pos_data, score_to_ttscore(best_score, data->ply), depth, type, best_move, data->pos);
 	tt_store(&pos_data);
 
-	return alpha;
+	return best_score;
 }
 
 /*
@@ -535,9 +535,9 @@ struct info *info, const struct parameters *params)
 		switch (pos_data.type) {
 		case NODE_TYPE_EXACT:
 			return score;
-		case NODE_TYPE_ALPHA_UNCHANGED:
-			beta = beta < score ? beta : score;
-			break;
+		//case NODE_TYPE_ALPHA_UNCHANGED:
+			//beta = beta < score ? beta : score;
+			//break;
 		case NODE_TYPE_CUT:
 			alpha = alpha > score ? alpha : score;
 			break;
@@ -585,8 +585,11 @@ struct info *info, const struct parameters *params)
 		 * with proportionality constant equal to 1.5 centipawns so that
 		 * upper nodes are less likely to be pruned. */
 		if (move_is_quiet(move) && !in_check && abs(beta) < INF - MAX_PLY) {
-			if (eval + 150 * depth <= alpha)
+			if (eval + 150 * depth <= alpha) {
+				best_score = eval;
+				alpha = best_score;
 				break;
+			}
 		}
 
 		/* Reverse futility pruning. It works similarly to the regular
@@ -596,7 +599,8 @@ struct info *info, const struct parameters *params)
 		 * most likely beat beta. */
 		if (move_is_quiet(move) && !in_check && abs(beta) < INF - MAX_PLY) {
 			if (eval - 150 * depth >= beta) {
-				alpha = eval - 150;
+				best_score = eval - 150 * depth;
+				alpha = best_score;
 				break;
 			}
 		}
@@ -615,10 +619,10 @@ struct info *info, const struct parameters *params)
 		if (score > best_score) {
 			best_score = score;
 			best_move = move;
-		}
-		if (best_score > alpha) {
-			alpha = best_score;
-			type = NODE_TYPE_EXACT;
+			if (score > alpha) {
+				alpha = best_score;
+				type = NODE_TYPE_EXACT;
+			}
 		}
 		if (alpha >= beta) {
 			if (!move_is_capture(move))
@@ -627,9 +631,6 @@ struct info *info, const struct parameters *params)
 			break;
 		}
 	}
-	/* If no good moves are found then just pick the first one as best to
-	 * store in the TT (since best_score starts at -INF this only
-	  * happens when all possibilities are genuinely bad.) */
 	if (!best_move && has_legal)
 		best_move = moves_ptr[0];
 
@@ -648,7 +649,7 @@ struct info *info, const struct parameters *params)
 
 	tt_entry_init(&pos_data, score_to_ttscore(best_score, data->ply), depth, type, best_move, data->pos);
 	tt_store(&pos_data);
-	return alpha;
+	return best_score;
 }
 
 /*

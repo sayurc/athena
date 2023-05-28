@@ -467,8 +467,6 @@ int eval_evaluate(const Position *pos)
 		if (piece == PIECE_NONE)
 			continue;
 		const PieceType pt = pos_get_piece_type(piece);
-		if (pt == PIECE_TYPE_KING)
-			continue;
 
 		if (pos_get_piece_color(piece) == color) {
 			score.mg += sq_tables[color][pt][sq].mg;
