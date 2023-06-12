@@ -144,7 +144,7 @@ static Move get_ply_move(int ply, struct search_data *data,
  * counted the right position.
  *
  * Note that the first repetition is already considered a draw because the
- * opponent can usually force the second one.
+ * opponent can usually force the second.
  */
 static bool repeated(struct search_data *data, const struct parameters *params)
 {
