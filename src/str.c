@@ -23,7 +23,7 @@
 /*
  * This is an implementation of the GNU vasprintf. We get the final string
  * length by calling vsprintf with size 0 and string pointer NULL which makes
- * it return the number of characters would have been written, but without
+ * it return the number of characters that would have been written, but without
  * writing anything. An extra character is added to the length to make place
  * for the 0 byte.
  */
