@@ -397,28 +397,26 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 
 	NodeData pos_data;
 	if (tt_get(&pos_data, data->pos) && pos_data.depth >= depth) {
+		const NodeType type = pos_data.type;
 		const int score = ttscore_to_score(pos_data.score, data->ply);
-		switch (pos_data.type) {
-		case NODE_TYPE_EXACT:
+		if (type == NODE_TYPE_EXACT ||
+		    (type == NODE_TYPE_CUT && score >= beta) ||
+		    (type == NODE_TYPE_ALPHA_UNCHANGED && score <= alpha)) {
 			return score;
-		//case NODE_TYPE_ALPHA_UNCHANGED:
-			//beta = beta < score ? beta : score;
-			//break;
-		case NODE_TYPE_CUT:
-			alpha = alpha > score ? alpha : score;
-			break;
 		}
 	}
 
-	int stand_pat = eval_evaluate(data->pos);
-	if (stand_pat >= beta)
-		return stand_pat;
-	if (alpha < stand_pat)
-		alpha = stand_pat;
-
 	NodeType type = NODE_TYPE_ALPHA_UNCHANGED;
-	int best_score = -INF;
+	int best_score = eval_evaluate(data->pos);;
 	Move best_move = 0;
+
+	/* Only return early if not in check otherwise checkmates won't be
+	 * detected and the stand-pat value would be returned instead. */
+	if (best_score >= beta && !is_in_check(data->pos))
+		return best_score;
+	if (best_score > alpha)
+		alpha = best_score;
+
 	bool has_legal = false;
 	size_t len = 0;
 	Move *const moves_ptr = movegen_get_pseudo_legal_moves(data->pos, &len);
@@ -489,8 +487,10 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 		}
 	}
 
-	tt_entry_init(&pos_data, score_to_ttscore(best_score, data->ply), depth, type, best_move, data->pos);
-	tt_store(&pos_data);
+	if (*params->running) {
+		tt_entry_init(&pos_data, score_to_ttscore(best_score, data->ply), depth, type, best_move, data->pos);
+		tt_store(&pos_data);
+	}
 
 	return best_score;
 }
@@ -531,16 +531,12 @@ struct info *info, const struct parameters *params)
 
 	NodeData pos_data;
 	if (tt_get(&pos_data, data->pos) && pos_data.depth >= depth) {
+		const NodeType type = pos_data.type;
 		const int score = ttscore_to_score(pos_data.score, data->ply);
-		switch (pos_data.type) {
-		case NODE_TYPE_EXACT:
+		if (type == NODE_TYPE_EXACT ||
+		    (type == NODE_TYPE_CUT && score >= beta) ||
+		    (type == NODE_TYPE_ALPHA_UNCHANGED && score <= alpha)) {
 			return score;
-		//case NODE_TYPE_ALPHA_UNCHANGED:
-			//beta = beta < score ? beta : score;
-			//break;
-		case NODE_TYPE_CUT:
-			alpha = alpha > score ? alpha : score;
-			break;
 		}
 	}
 	if (!depth) {
@@ -586,9 +582,8 @@ struct info *info, const struct parameters *params)
 		 * upper nodes are less likely to be pruned. */
 		if (move_is_quiet(move) && !in_check && abs(beta) < INF - MAX_PLY) {
 			if (eval + 150 * depth <= alpha) {
-				best_score = eval;
-				alpha = best_score;
-				break;
+				free(moves_ptr);
+				return eval;
 			}
 		}
 
@@ -599,9 +594,8 @@ struct info *info, const struct parameters *params)
 		 * most likely beat beta. */
 		if (move_is_quiet(move) && !in_check && abs(beta) < INF - MAX_PLY) {
 			if (eval - 150 * depth >= beta) {
-				best_score = eval - 150 * depth;
-				alpha = best_score;
-				break;
+				free(moves_ptr);
+				return eval - 150 * depth;
 			}
 		}
 
@@ -647,8 +641,11 @@ struct info *info, const struct parameters *params)
 		}
 	}
 
-	tt_entry_init(&pos_data, score_to_ttscore(best_score, data->ply), depth, type, best_move, data->pos);
-	tt_store(&pos_data);
+	if (*params->running) {
+		tt_entry_init(&pos_data, score_to_ttscore(best_score, data->ply), depth, type, best_move, data->pos);
+		tt_store(&pos_data);
+	}
+
 	return best_score;
 }
 
