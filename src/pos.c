@@ -38,8 +38,8 @@
  * counted from the least significant bit to the most significant bit, from 0
  * to 63. The bitboards store pieces using a Little-Endian Rank-File mapping
  * (LERF), which means each byte, from the least significant byte to the most
- * significant byte represent a rank, and each bit of these bytes represent a
- * square on that rank. Which means that A1 is square 0, H1 is square 7, A2 is
+ * significant byte represents a rank, and each bit of these bytes represents a
+ * square on that rank. So, for example, A1 is square 0, H1 is square 7, A2 is
  * square 8, H2 is square 15 and so on.
  * 
  * The square-centric format is just a flat array indexed by the square number
