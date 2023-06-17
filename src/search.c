@@ -333,8 +333,8 @@ static bool has_legal_moves(const Move *moves, size_t len, Position *pos)
 }
 
 /*
- * We can't store mate scores in the TT directly because the same position can
- * be found in different plies from the root, which means that if we use the
+ * We can't store mate scores as-is in the TT directly because the same position
+ * can be found in different plies from the root, which means that if we use the
  * mate score in a transposition with larger ply than the node that stored the
  * entry we will get a larger score even though the mate takes longer. This
  * would make the engine choose longer mates and if it keeps choosing longer
