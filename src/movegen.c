@@ -827,40 +827,6 @@ Move *movegen_get_pseudo_legal_moves(const Position *restrict pos,
 }
 
 /*
- * Return the number of possible moves on an empty board containing only the
- * moving piece. The color of the piece is only used for pawns so for any other
- * piece the result will be the same for either white or black.
- */
-int movegen_get_number_of_moves_empty_board(Piece piece, Square sq) {
-	const PieceType pt = pos_get_piece_type(piece);
-	const Color c = pos_get_piece_color(piece);
-	u64 targets = 0;
-	switch (pt) {
-	case PIECE_TYPE_PAWN:
-		targets = get_single_push(sq, 0, c) | get_double_push(sq, 0, c);
-		break;
-	case PIECE_TYPE_KNIGHT:
-		targets = get_knight_attacks(sq);
-		break;
-	case PIECE_TYPE_ROOK:
-		targets = get_rook_attacks(sq, 0);
-		break;
-	case PIECE_TYPE_BISHOP:
-		targets = get_bishop_attacks(sq, 0);
-		break;
-	case PIECE_TYPE_QUEEN:
-		targets = get_queen_attacks(sq, 0);
-		break;
-	case PIECE_TYPE_KING:
-		targets = get_king_attacks(sq);
-		break;
-	default:
-		abort();
-	}
-	return popcnt(targets);
-}
-
-/*
  * Returns a bitboard of the pieces attacking a square. Note that this only
  * counts pieces that are attacking a square directly, so a rook behind another
  * rook will not be included.

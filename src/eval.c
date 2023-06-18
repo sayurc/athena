@@ -181,18 +181,6 @@ static const int eg_king_sq_table[64] = {
 static struct score sq_tables[2][6][64];
 
 /*
- * These tables store the number of possible moves for a piece when the board
- * contains only that piece, so no occupancy for sliding pieces or pawns.
- */
-static i8 white_pawn_num_moves[64];
-static i8 black_pawn_num_moves[64];
-static i8 knight_num_moves[64];
-static i8 rook_num_moves[64];
-static i8 bishop_num_moves[64];
-static i8 queen_num_moves[64];
-static i8 king_num_moves[64];
-
-/*
  * These are the intrinsic point value of each piece in the centipawn scale, in
  * increasing sorted order.
  */
@@ -204,19 +192,6 @@ static const int point_value[] = {
 	[PIECE_TYPE_QUEEN] = 1000,
 	[PIECE_TYPE_KING] = 10000,
 };
-
-static void init_possible_moves_table(void)
-{
-	for (Square sq = A1; sq <= H8; ++sq) {
-		white_pawn_num_moves[sq] = movegen_get_number_of_moves_empty_board(PIECE_WHITE_PAWN, sq);
-		black_pawn_num_moves[sq] = movegen_get_number_of_moves_empty_board(PIECE_BLACK_PAWN, sq);
-		knight_num_moves[sq] = movegen_get_number_of_moves_empty_board(PIECE_WHITE_KNIGHT, sq);
-		rook_num_moves[sq] = movegen_get_number_of_moves_empty_board(PIECE_WHITE_ROOK, sq);
-		bishop_num_moves[sq] = movegen_get_number_of_moves_empty_board(PIECE_WHITE_BISHOP, sq);
-		queen_num_moves[sq] = movegen_get_number_of_moves_empty_board(PIECE_WHITE_QUEEN, sq);
-		king_num_moves[sq] = movegen_get_number_of_moves_empty_board(PIECE_WHITE_KING, sq);
-	}
-}
 
 static void init_sq_tables(void)
 {
@@ -532,6 +507,5 @@ int eval_evaluate_move(Move move, Position *pos)
 
 void eval_init(void)
 {
-	init_possible_moves_table();
 	init_sq_tables();
 }
