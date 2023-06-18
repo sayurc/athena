@@ -474,7 +474,7 @@ static u64 get_queen_attacks(Square sq, u64 occ)
 	return get_rook_attacks(sq, occ) | get_bishop_attacks(sq, occ);
 }
 
-static void add_move(MoveList *list, Move move)
+static void add_move(MoveList *restrict list, Move move)
 {
 	if (list->len == list->capacity) {
 		list->capacity <<= 2;
@@ -490,7 +490,8 @@ static void add_move(MoveList *list, Move move)
 	++list->len;
 }
 
-static void add_pushes(MoveList *list, Square from, u64 occ, Color color)
+static void add_pushes(MoveList *restrict list, Square from, u64 occ,
+                       Color color)
 {
 	u64 targets = get_single_push(from, occ, color);
 	if (targets) {
@@ -509,7 +510,8 @@ static void add_pushes(MoveList *list, Square from, u64 occ, Color color)
 	}
 }
 
-static void add_double_pushes(MoveList *list, Square from, u64 occ, Color color)
+static void add_double_pushes(MoveList *restrict list, Square from, u64 occ,
+                              Color color)
 {
 	u64 targets = get_double_push(from, occ, color);
 	if (targets) {
@@ -519,8 +521,8 @@ static void add_double_pushes(MoveList *list, Square from, u64 occ, Color color)
 	}
 }
 
-static void add_pawn_attacks(MoveList *list, Square from, u64 enemy_pieces,
-                             Color color)
+static void add_pawn_attacks(MoveList *restrict list, Square from,
+                             u64 enemy_pieces, Color color)
 {
 	u64 targets = get_pawn_attacks(from, color) & enemy_pieces;
 	while (targets) {
@@ -696,7 +698,7 @@ static void add_moves(MoveList *restrict list, PieceType piece_type,
 }
 
 int movegen_get_number_of_pseudo_legal_moves(PieceType piece_type, Color c,
-                                             const Position *pos)
+                                             const Position *restrict pos)
 {
 	const Piece piece = pos_make_piece(piece_type, c);
 	const u64 occ = pos_get_color_bitboard(pos, c)
@@ -761,7 +763,8 @@ void movegen_init(void)
  * pawn moves are the inverse of the pawn moves, so we can just use the opposite
  * side's attacks for pawns.
  */
-bool movegen_is_square_attacked(Square sq, Color by_side, const Position *pos)
+bool movegen_is_square_attacked(Square sq, Color by_side,
+                                const Position *restrict pos)
 {
 	const u64 occ = pos_get_color_bitboard(pos, by_side)
 	              | pos_get_color_bitboard(pos, !by_side);
@@ -831,12 +834,11 @@ Move *movegen_get_pseudo_legal_moves(const Position *restrict pos,
  * counts pieces that are attacking a square directly, so a rook behind another
  * rook will not be included.
  */
-u64 movegen_get_attackers(Square sq, const Position *pos)
+u64 movegen_get_attackers(Square sq, const Position *restrict pos)
 {
 	const u64 occ = pos_get_color_bitboard(pos, COLOR_WHITE)
 	              | pos_get_color_bitboard(pos, COLOR_BLACK);
-	u64 (*const get_bb)(const Position *pos,
-	                    Piece piece) = pos_get_piece_bitboard;
+	u64 (*const get_bb)(const Position *, Piece) = pos_get_piece_bitboard;
 
 	const u64 white_pawns = get_bb(pos, PIECE_BLACK_PAWN);
 	const u64 black_pawns = get_bb(pos, PIECE_WHITE_PAWN);
@@ -864,7 +866,7 @@ u64 movegen_get_attackers(Square sq, const Position *pos)
 /*
  * Returns a bitboard containing the squares attacked by a piece at square sq.
  */
-u64 movegen_get_attacked_squares(Square sq, const Position *pos)
+u64 movegen_get_attacked_squares(Square sq, const Position *restrict pos)
 {
 	const Piece piece = pos_get_piece_at(pos, sq);
 	const Color color = pos_get_piece_color(piece);
@@ -890,7 +892,7 @@ u64 movegen_get_attacked_squares(Square sq, const Position *pos)
 	}
 }
 
-u64 movegen_perft(Position *pos, int depth)
+u64 movegen_perft(Position *restrict pos, int depth)
 {
 	u64 nodes = 0;
 
