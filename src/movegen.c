@@ -300,11 +300,24 @@ static u64 slow_gen_rook_attacks(Square sq, u64 occ)
  * 1/8 of their bits set on average, since this is usually the case for magic
  * numbers.
  */
-static void init_magics_with(SlidingAttackGenerator *attack_generator,
-			     u64 attack_table[], Magic magics[])
+static void init_magics_for_piece_type(PieceType piece_type)
 {
 	static u64 occ[4096], ref[4096];
 	static unsigned attempts[4096];
+
+	SlidingAttackGenerator *attack_generator;
+	u64 *attack_table;
+	Magic *magics;
+
+	if (piece_type == PIECE_TYPE_BISHOP) {
+		attack_generator = slow_gen_bishop_attacks;
+		attack_table = bishop_attack_table;
+		magics = bishop_magics;
+	} else if (piece_type == PIECE_TYPE_ROOK) {
+		attack_generator = slow_gen_rook_attacks;
+		attack_table = rook_attack_table;
+		magics = rook_magics;
+	}
 
 	size_t size;
 	for (Square sq = A1; sq <= H8; ++sq) {
@@ -360,12 +373,8 @@ static void init_magics_with(SlidingAttackGenerator *attack_generator,
 
 static void init_magics(void)
 {
-	init_magics_with(slow_gen_rook_attacks,
-	                 rook_attack_table,
-	                 rook_magics);
-	init_magics_with(slow_gen_bishop_attacks,
-	                 bishop_attack_table,
-	                 bishop_magics);
+	init_magics_for_piece_type(PIECE_TYPE_BISHOP);
+	init_magics_for_piece_type(PIECE_TYPE_ROOK);
 }
 
 static void init_knight_attacks(void)
