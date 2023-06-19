@@ -478,7 +478,6 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 
 	if (!has_legal) {
 		if (is_in_check(data->pos)) {
-			info->mate = (data->ply + 1) / 2 + 1;
 			best_score = -INF + data->ply;
 			alpha = best_score;
 		} else {
@@ -633,7 +632,6 @@ struct info *info, const struct parameters *params)
 
 	if (!has_legal) {
 		if (is_in_check(data->pos)) {
-			info->mate = (data->ply + 1) / 2 + 1;
 			best_score = -INF + data->ply;
 			alpha = best_score;
 		} else {
@@ -770,8 +768,7 @@ static struct result search(const struct parameters *params)
 			alpha = score;
 			result.best = move;
 		}
-		if (params->mate && alpha >= INF - MAX_PLY &&
-		    info.mate == params->mate) {
+		if (params->mate && alpha >= INF - MAX_PLY) {
 			result.found_mate = true;
 			result.best = move;
 			break;
@@ -790,10 +787,15 @@ static struct result search(const struct parameters *params)
 	info.cp = alpha;
 	info.flags = INFO_FLAG_DEPTH | INFO_FLAG_NODES | INFO_FLAG_NPS |
 	             INFO_FLAG_TIME;
-	if (alpha >= INF - MAX_PLY)
+	if (alpha >= INF - MAX_PLY) {
+		info.mate = (INF - alpha + 1) / 2;
 		info.flags |= INFO_FLAG_MATE;
-	else
+	} else if (alpha <= -INF + MAX_PLY) {
+		info.mate = -(INF + alpha + 1) / 2;
+		info.flags |= INFO_FLAG_MATE;
+	} else {
 		info.flags |= INFO_FLAG_CP;
+	}
 	if (!*params->running)
 		info.flags |= INFO_FLAG_LBOUND;
 	params->output(&info);
