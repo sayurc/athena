@@ -180,7 +180,6 @@ static size_t compute_capacity(int size)
 	else
 		tmp = (tmp * mib_in_byte) / sizeof(NodeData);
 	tmp %= SIZE_MAX;
-	printf("capacity = %llu\n", find_prime(tmp));
 	return find_prime(tmp);
 }
 

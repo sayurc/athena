@@ -773,8 +773,6 @@ static struct result search(const struct parameters *params)
 			result.best = move;
 			break;
 		}
-		//if (alpha >= beta)
-			//break;
 	}
 	timespec_get(&ts2, TIME_UTC);
 
@@ -872,7 +870,6 @@ static long long compute_search_time(const Position *pos, long long time,
 	if (movestogo == 1) {
 		double factor = pow(time / 1000., 1.1);
 		factor /= pow(time / 1000. + 1., 1.1);
-		printf("time * factor = %f\n", time * factor);
 		return time * factor;
 	}
 	const int phase = pos_get_phase(pos);
