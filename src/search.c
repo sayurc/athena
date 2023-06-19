@@ -49,7 +49,7 @@ struct search_data {
 	int ply;
 	long long nodes;
 	Position *pos;
-	Move killers[MAX_PLY + 1][MAX_KILLER_MOVES];
+	Move killers[MAX_DEPTH + 1][MAX_KILLER_MOVES];
 	Move move_made[MAX_PLY + 1];
 	i8 pos_cnt[POS_CNT_TABLE_LEN];
 };
@@ -241,8 +241,8 @@ static bool is_killer(Move move, const Move *killers)
  * have in the transposition table. And other moves have offset 0 because they
  * have lower priority than captures.
  */
-static Move get_next_move(const Move *moves, size_t len,
-struct search_data *data)
+static Move get_next_move(const Move *restrict moves, size_t len,
+                          const Move *restrict killers, Position *restrict pos)
 {
 	static const int capture_offset = 300;
 	static const int killer_offset = 600;
@@ -252,7 +252,7 @@ struct search_data *data)
 	for (size_t i = 0; i < len; ++i) {
 		const Move move = moves[i];
 		NodeData pos_data;
-		if (tt_get(&pos_data, data->pos) &&
+		if (tt_get(&pos_data, pos) &&
 		    pos_data.type == NODE_TYPE_EXACT) {
 			if (move == pos_data.best_move)
 				return i;
@@ -262,14 +262,14 @@ struct search_data *data)
 	for (size_t i = 0; i < len; ++i) {
 		const Move move = moves[i];
 		int score = 0;
-		if (is_killer(move, data->killers[data->ply]))
+		if (is_killer(move, killers))
 			score = killer_offset +
-			        eval_evaluate_move(move, data->pos);
+			        eval_evaluate_move(move, pos);
 		else if (move_is_capture(move))
 			score = capture_offset +
-			        eval_evaluate_move(move, data->pos);
+			        eval_evaluate_move(move, pos);
 		else
-			score = eval_evaluate_move(move, data->pos);
+			score = eval_evaluate_move(move, pos);
 
 		if (score > best_score) {
 			best_idx = i;
@@ -565,7 +565,8 @@ struct info *info, const struct parameters *params)
 		 * pruned. */
 		if (len > 1) {
 			Move first = moves[0];
-			size_t i = get_next_move(moves, len, data);
+			size_t i = get_next_move(moves, len, data->killers[depth],
+			                         data->pos);
 			Move most_promising = moves[i];
 			moves[0] = most_promising;
 			moves[i] = first;
@@ -620,7 +621,7 @@ struct info *info, const struct parameters *params)
 		}
 		if (alpha >= beta) {
 			if (!move_is_capture(move))
-				store_killer(data->killers[data->ply], move);
+				store_killer(data->killers[depth], move);
 			type = NODE_TYPE_CUT;
 			break;
 		}
