@@ -1,0 +1,8 @@
+CC = clang
+CFLAGS = -O2 -march=native -flto
+
+LDFLAGS = -flto
+LDLIBS = -lm
+
+PREFIX = /usr/local
+MANPREFIX = $(PREFIX)/share/man
