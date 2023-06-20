@@ -2,7 +2,8 @@
 
 include config.mk
 
-OBJ = bit.o eval.o main.o move.o movegen.o pos.o rng.o search.o str.o threads.o tt.o uci.o
+OBJ = bit.o eval.o main.o move.o movegen.o pos.o rng.o search.o str.o threads.o\
+      tt.o uci.o
 
 all: $(OBJ)
 	$(CC) $(LDFLAGS) -o athena $^ $(LDLIBS)
