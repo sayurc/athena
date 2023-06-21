@@ -21,10 +21,6 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-#ifdef TEST
-#include <check.h>
-#endif
-
 #include "bit.h"
 #include "pos.h"
 #include "move.h"
@@ -230,14 +226,14 @@ static void init_sq_tables(void)
 static int get_attacker_value(Piece piece)
 {
 	const size_t len = sizeof(point_value) / sizeof(point_value[0]);
-	const PieceType pt = pos_get_piece_type(piece);
+	const PieceType pt = get_piece_type(piece);
 
 	return point_value[(len - 1) - pt];
 }
 
 static int get_captured_piece_value(Piece piece)
 {
-	const PieceType pt = pos_get_piece_type(piece);
+	const PieceType pt = get_piece_type(piece);
 	return point_value[pt];
 }
 
@@ -248,14 +244,13 @@ static int get_captured_piece_value(Piece piece)
  */
 static u64 get_least_valuable_attackers(Square sq, const Position *pos)
 {
-	const u64 attackers = movegen_get_attackers(sq, pos);
+	const u64 attackers = get_attackers(sq, pos);
 
 	u64 ret = 0;
 	Piece least_piece = PIECE_NONE;
 	for (PieceType pt = PIECE_TYPE_PAWN; pt <= PIECE_TYPE_KING; ++pt) {
-		const Piece piece = pos_make_piece(pt,
-		                                   pos_get_side_to_move(pos));
-		const u64 bb = pos_get_piece_bitboard(pos, piece);
+		const Piece piece = create_piece(pt, get_side_to_move(pos));
+		const u64 bb = get_piece_bitboard(pos, piece);
 		if (bb & attackers) {
 			if (!ret || get_attacker_value(piece) >
 			    get_captured_piece_value(least_piece)) {
@@ -269,17 +264,17 @@ static u64 get_least_valuable_attackers(Square sq, const Position *pos)
 
 static struct score compute_mvv_lva(Move move, const Position *pos)
 {
-	const MoveType move_type = move_get_type(move);
-	const Square target = move_get_target(move);
-	const Square origin = move_get_origin(move);
-	const Piece attacker = pos_get_piece_at(pos, origin);
-	const Color attacker_color = pos_get_piece_color(attacker);
+	const MoveType move_type = get_move_type(move);
+	const Square target = get_target_square(move);
+	const Square origin = get_origin_square(move);
+	const Piece attacker = get_piece_at(pos, origin);
+	const Color attacker_color = get_piece_color(attacker);
 	Piece attacked;
 	if (move_type == MOVE_EP_CAPTURE)
 		attacked = attacker_color == COLOR_WHITE ? PIECE_BLACK_PAWN :
 		                                           PIECE_WHITE_PAWN;
 	else
-		attacked = pos_get_piece_at(pos, target);
+		attacked = get_piece_at(pos, target);
 	const int tmp = get_captured_piece_value(attacked) +
 	                get_attacker_value(attacker);
 	struct score score = {
@@ -312,50 +307,50 @@ static int evaluate_exchange(Square target, Position *pos)
 	const u64 attackers = get_least_valuable_attackers(target, pos);
 	if (attackers) {
 		const Square from = get_ls1b(attackers);
-		const Piece piece = pos_get_piece_at(pos, from);
+		const Piece piece = get_piece_at(pos, from);
 		MoveType move_type = MOVE_CAPTURE;
-		if ((piece == PIECE_WHITE_PAWN && pos_get_rank(target) == RANK_8) ||
-		    (piece == PIECE_BLACK_PAWN && pos_get_rank(target) == RANK_1))
+		if ((piece == PIECE_WHITE_PAWN && get_rank(target) == RANK_8) ||
+		    (piece == PIECE_BLACK_PAWN && get_rank(target) == RANK_1))
 			move_type = MOVE_QUEEN_PROMOTION_CAPTURE;
-		const Move move = move_new(from, target, move_type);
-		move_do(pos, move);
-		const Piece cap_piece = pos_get_captured_piece(pos);
+		const Move move = create_move(from, target, move_type);
+		do_move(pos, move);
+		const Piece cap_piece = get_captured_piece(pos);
 		const int score = get_captured_piece_value(cap_piece) - evaluate_exchange(target, pos);
 		if (score > 0)
 			value = score;
-		move_undo(pos, move);
+		undo_move(pos, move);
 	}
 	return value;
 }
 
 static int compute_material(const Position *pos)
 {
-	const Color c = pos_get_side_to_move(pos);
-	const int P = pos_make_piece(PIECE_TYPE_PAWN  , c),
-	          N = pos_make_piece(PIECE_TYPE_KNIGHT, c),
-	          R = pos_make_piece(PIECE_TYPE_ROOK  , c),
-	          B = pos_make_piece(PIECE_TYPE_BISHOP, c),
-	          Q = pos_make_piece(PIECE_TYPE_QUEEN , c),
-	          K = pos_make_piece(PIECE_TYPE_KING  , c);
-	const int p = pos_make_piece(PIECE_TYPE_PAWN  , !c),
-	          n = pos_make_piece(PIECE_TYPE_KNIGHT, !c),
-	          r = pos_make_piece(PIECE_TYPE_ROOK  , !c),
-	          b = pos_make_piece(PIECE_TYPE_BISHOP, !c),
-	          q = pos_make_piece(PIECE_TYPE_QUEEN , !c),
-	          k = pos_make_piece(PIECE_TYPE_KING  , !c);
-	const int num_P = pos_get_number_of_pieces(pos, P),
-	          num_N = pos_get_number_of_pieces(pos, N),
-	          num_R = pos_get_number_of_pieces(pos, R),
-	          num_B = pos_get_number_of_pieces(pos, B),
-	          num_Q = pos_get_number_of_pieces(pos, Q),
-	          num_K = pos_get_number_of_pieces(pos, K);
+	const Color c = get_side_to_move(pos);
+	const int P = create_piece(PIECE_TYPE_PAWN  , c),
+	          N = create_piece(PIECE_TYPE_KNIGHT, c),
+	          R = create_piece(PIECE_TYPE_ROOK  , c),
+	          B = create_piece(PIECE_TYPE_BISHOP, c),
+	          Q = create_piece(PIECE_TYPE_QUEEN , c),
+	          K = create_piece(PIECE_TYPE_KING  , c);
+	const int p = create_piece(PIECE_TYPE_PAWN  , !c),
+	          n = create_piece(PIECE_TYPE_KNIGHT, !c),
+	          r = create_piece(PIECE_TYPE_ROOK  , !c),
+	          b = create_piece(PIECE_TYPE_BISHOP, !c),
+	          q = create_piece(PIECE_TYPE_QUEEN , !c),
+	          k = create_piece(PIECE_TYPE_KING  , !c);
+	const int num_P = get_number_of_pieces(pos, P),
+	          num_N = get_number_of_pieces(pos, N),
+	          num_R = get_number_of_pieces(pos, R),
+	          num_B = get_number_of_pieces(pos, B),
+	          num_Q = get_number_of_pieces(pos, Q),
+	          num_K = get_number_of_pieces(pos, K);
 
-	const int num_p = pos_get_number_of_pieces(pos, p),
-	          num_n = pos_get_number_of_pieces(pos, n),
-	          num_r = pos_get_number_of_pieces(pos, r),
-	          num_b = pos_get_number_of_pieces(pos, b),
-	          num_q = pos_get_number_of_pieces(pos, q),
-	          num_k = pos_get_number_of_pieces(pos, k);
+	const int num_p = get_number_of_pieces(pos, p),
+	          num_n = get_number_of_pieces(pos, n),
+	          num_r = get_number_of_pieces(pos, r),
+	          num_b = get_number_of_pieces(pos, b),
+	          num_q = get_number_of_pieces(pos, q),
+	          num_k = get_number_of_pieces(pos, k);
 	const int material = point_value[PIECE_TYPE_PAWN]   * (num_P - num_p)
 	                   + point_value[PIECE_TYPE_KNIGHT] * (num_N - num_n)
 	                   + point_value[PIECE_TYPE_ROOK]   * (num_R - num_r)
@@ -367,18 +362,18 @@ static int compute_material(const Position *pos)
 }
 static struct score evaluate_capture(Move move, Position *pos)
 {
-	const Square origin = move_get_origin(move);
-	const Square target = move_get_target(move);
-	const Piece piece = pos_get_piece_at(pos, origin);
-	const PieceType pt = pos_get_piece_type(piece);
-	const MoveType move_type = move_get_type(move);
+	const Square origin = get_origin_square(move);
+	const Square target = get_target_square(move);
+	const Piece piece = get_piece_at(pos, origin);
+	const PieceType pt = get_piece_type(piece);
+	const MoveType move_type = get_move_type(move);
 
 	PieceType cap_piece_type;
 	if (move_type == MOVE_EP_CAPTURE) {
 		cap_piece_type = PIECE_TYPE_PAWN;
 	} else {
-		Piece cap_piece = pos_get_piece_at(pos, target);
-		cap_piece_type = pos_get_piece_type(cap_piece);
+		Piece cap_piece = get_piece_at(pos, target);
+		cap_piece_type = get_piece_type(cap_piece);
 	}
 
 	struct score score = compute_mvv_lva(move, pos);
@@ -391,13 +386,13 @@ static struct score evaluate_capture(Move move, Position *pos)
 			score.eg += point_value[PIECE_TYPE_QUEEN];
 		}
 	} else {
-		move_do(pos, move);
-		Piece cap_piece = pos_get_captured_piece(pos);
+		do_move(pos, move);
+		Piece cap_piece = get_captured_piece(pos);
 		const int tmp = get_captured_piece_value(cap_piece) -
 		                evaluate_exchange(target, pos);
 		score.mg += tmp;
 		score.eg += tmp;
-		move_undo(pos, move);
+		undo_move(pos, move);
 	}
 
 	return score;
@@ -410,18 +405,18 @@ static struct score evaluate_capture(Move move, Position *pos)
  */
 static int get_smallest_pawn_distance(const Position *pos, Color color)
 {
-	const Square king_sq = pos_get_king_square(pos, color);
-	const File king_file = pos_get_file(king_sq);
-	const Rank king_rank = pos_get_rank(king_sq);
-	const Piece pawn = pos_make_piece(PIECE_TYPE_PAWN, color);
+	const Square king_sq = get_king_square(pos, color);
+	const File king_file = get_file(king_sq);
+	const Rank king_rank = get_rank(king_sq);
+	const Piece pawn = create_piece(PIECE_TYPE_PAWN, color);
 
-	u64 pawn_bb = pos_get_piece_bitboard(pos, pawn) &
-	              pos_get_color_bitboard(pos, color);
+	u64 pawn_bb = get_piece_bitboard(pos, pawn) &
+	              get_color_bitboard(pos, color);
 	int dist = 6;
 	while (pawn_bb) {
 		const Square sq = unset_ls1b(&pawn_bb);
-		const File file = pos_get_file(sq);
-		const Rank rank = pos_get_rank(sq);
+		const File file = get_file(sq);
+		const Rank rank = get_rank(sq);
 		const int file_dist = abs((int)king_file - (int)file);
 		const int rank_dist = abs((int)king_rank - (int)rank);
 		const int tmp = file_dist > rank_dist ? file_dist : rank_dist;
@@ -431,19 +426,19 @@ static int get_smallest_pawn_distance(const Position *pos, Color color)
 	return dist - 1;
 }
 
-int eval_evaluate(const Position *pos)
+int evaluate(const Position *pos)
 {
-	const Color color = pos_get_side_to_move(pos);
-	const int phase = pos_get_phase(pos);
+	const Color color = get_side_to_move(pos);
+	const int phase = get_phase(pos);
 
 	struct score score = {0, 0};
 	for (Square sq = A1; sq <= H8; ++sq) {
-		const Piece piece = pos_get_piece_at(pos, sq);
+		const Piece piece = get_piece_at(pos, sq);
 		if (piece == PIECE_NONE)
 			continue;
-		const PieceType pt = pos_get_piece_type(piece);
+		const PieceType pt = get_piece_type(piece);
 
-		if (pos_get_piece_color(piece) == color) {
+		if (get_piece_color(piece) == color) {
 			score.mg += sq_tables[color][pt][sq].mg;
 			score.eg += sq_tables[color][pt][sq].eg;
 		} else {
@@ -465,14 +460,14 @@ int eval_evaluate(const Position *pos)
 /*
  * This function estimates the expected score gain after a move.
  */
-int eval_evaluate_move(Move move, Position *pos)
+int evaluate_move(Move move, Position *pos)
 {
-	const int phase = pos_get_phase(pos);
-	const Square origin = move_get_origin(move);
-	const Square target = move_get_target(move);
-	const Piece piece = pos_get_piece_at(pos, origin);
-	const Color color = pos_get_piece_color(piece);
-	const PieceType pt = pos_get_piece_type(piece);
+	const int phase = get_phase(pos);
+	const Square origin = get_origin_square(move);
+	const Square target = get_target_square(move);
+	const Piece piece = get_piece_at(pos, origin);
+	const Color color = get_piece_color(piece);
+	const PieceType pt = get_piece_type(piece);
 
 	struct score score = {0, 0};
 
