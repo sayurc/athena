@@ -580,7 +580,8 @@ struct info *info, const struct parameters *params)
 		 * next moves. The safety margin is proportional to the depth
 		 * with proportionality constant equal to 1.5 centipawns so that
 		 * upper nodes are less likely to be pruned. */
-		if (move_is_quiet(move) && !in_check) {
+		if (move_is_quiet(move) && !in_check && abs(alpha) < INF - MAX_PLY &&
+		    abs(beta) < INF - MAX_PLY) {
 			if (eval + 175 * depth <= alpha) {
 				free(moves_ptr);
 				return eval;
@@ -592,7 +593,8 @@ struct info *info, const struct parameters *params)
 		 * If the static position score minus some margin can beat beta,
 		 * then skip all next moves because the full evaluation will
 		 * most likely beat beta. */
-		if (move_is_quiet(move) && !in_check && abs(beta) < INF - MAX_PLY) {
+		if (move_is_quiet(move) && !in_check && abs(alpha) < INF - MAX_PLY &&
+		    abs(beta) < INF - MAX_PLY) {
 			if (eval - 175 * depth >= beta) {
 				free(moves_ptr);
 				return eval - 175 * depth;
