@@ -23,8 +23,8 @@
 #include <limits.h>
 #include <string.h>
 
-#ifdef __x86_64__
-#include <x86intrin.h>
+#ifdef ARCH_x64
+#include <immintrin.h>
 #endif
 
 #include "bit.h"
@@ -163,7 +163,7 @@ void init_tt_entry(NodeData *data, int score, int depth, NodeType type,
 
 void prefetch_tt(void)
 {
-#ifdef __x86_64__
+#ifdef ARCH_x64
 	_mm_prefetch(transposition_table.ptr, _MM_HINT_T0);
 #else
 	return;

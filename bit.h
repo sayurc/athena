@@ -31,12 +31,6 @@ typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
 
-#ifdef __BMI2__
-#define HAS_BMI2 true
-#else
-#define HAS_BMI2 false
-#endif
-
 u64 pext(u64 n, u64 mask);
 int popcnt(u64 n);
 int get_ls1b(u64 n);

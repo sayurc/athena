@@ -19,7 +19,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#if defined(__x86_64__) || defined(_M_X64)
+#ifdef ARCH_x64
 #include <immintrin.h>
 #endif
 
@@ -27,7 +27,7 @@
 
 u64 pext(u64 n, u64 mask)
 {
-#ifdef __BMI2__
+#ifdef USE_BMI2
 	return _pext_u64(n, mask);
 #else
 	u64 ret = 0;
@@ -42,7 +42,7 @@ u64 pext(u64 n, u64 mask)
 
 int popcnt(u64 n)
 {
-#ifdef __SSE4_2__
+#ifdef USE_POPCNT
 	return _mm_popcnt_u64(n);
 #else
 	const u64 k1 = U64(0x5555555555555555);
@@ -72,7 +72,7 @@ int unset_ls1b(u64 *n)
  */
 int get_ls1b(u64 n)
 {
-#ifdef __BMI__
+#ifdef USE_BMI
 	return _tzcnt_u64(n);
 #else
 	const int index[64] = {
@@ -95,7 +95,7 @@ int get_ls1b(u64 n)
  * Returns the index of the most significant 1 bit.
  */
 int get_ms1b(u64 n) {
-#ifdef __BMI__
+#ifdef USE_BMI
 	return 63 ^ _lzcnt_u64(n);
 #else
 	const int index64[64] = {

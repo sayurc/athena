@@ -342,15 +342,17 @@ static void init_magics_for_piece_type(PieceType piece_type)
 			occ[size] = bb;
 			ref[size] = attack_generator(sq, bb);
 
-			if (HAS_BMI2)
+#ifdef USE_BMI2
 				m->ptr[pext(bb, m->mask)] = ref[size];
+#endif
 
 			bb = (bb - m->mask) & m->mask;
 			++size;
 		} while (bb);
 
-		if (HAS_BMI2)
+#ifdef USE_BMI2
 			continue;
+#endif
 
 		memset(attempts, 0, sizeof(attempts));
 		for (size_t i = 0, current_attempt = 0; i < size;) {
@@ -450,8 +452,9 @@ static u64 get_king_attacks(Square sq)
 static u64 get_rook_attacks(Square sq, u64 occ)
 {
 	const u64 *const aptr = rook_magics[sq].ptr;
-	if (HAS_BMI2)
+#ifdef USE_BMI2
 		return aptr[pext(occ, rook_magics[sq].mask)];
+#endif
 	occ &= rook_magics[sq].mask;
 	occ *= rook_magics[sq].num;
 	occ >>= rook_magics[sq].shift;
@@ -461,8 +464,9 @@ static u64 get_rook_attacks(Square sq, u64 occ)
 static u64 get_bishop_attacks(Square sq, u64 occ)
 {
 	const u64 *const aptr = bishop_magics[sq].ptr;
-	if (HAS_BMI2)
+#ifdef USE_BMI2
 		return aptr[pext(occ, bishop_magics[sq].mask)];
+#endif
 	occ &= bishop_magics[sq].mask;
 	occ *= bishop_magics[sq].num;
 	occ >>= bishop_magics[sq].shift;
