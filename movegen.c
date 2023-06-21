@@ -836,7 +836,3 @@ u64 movegen_perft(Position *restrict pos, int depth)
 	free(moves);
 	return nodes;
 }
-
-#ifdef TEST
-#include "test_movegen.c"
-#endif

@@ -25,10 +25,6 @@
 #include <stdarg.h>
 #include <limits.h>
 
-#ifdef TEST
-#include <check.h>
-#endif
-
 #include "bit.h"
 #include "str.h"
 #include "threads.h"

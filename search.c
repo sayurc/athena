@@ -25,10 +25,6 @@
 #include <math.h>
 #include <string.h>
 
-#ifdef TEST
-#include <check.h>
-#endif
-
 #include "bit.h"
 #include "threads.h"
 #include "pos.h"
