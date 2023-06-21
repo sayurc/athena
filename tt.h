@@ -49,15 +49,15 @@ typedef struct node_data {
 	Move best_move;
 } NodeData;
 
-u64 tt_hash(const Position *pos);
-bool tt_get(NodeData *data, const Position *pos);
-void tt_store(const NodeData *data);
-void tt_entry_init(NodeData *pos_data, int score, int depth, NodeType type,
+u64 hash_pos(const Position *pos);
+bool get_tt_entry(NodeData *data, const Position *pos);
+void store_tt_entry(const NodeData *data);
+void init_tt_entry(NodeData *pos_data, int score, int depth, NodeType type,
                    Move best_move, const Position *pos);
-void tt_prefetch(void);
-void tt_clear(void);
-void tt_resize(int size);
+void prefetch_tt(void);
+void clear_tt(void);
+void resize_tt(int size);
 void tt_init(int size);
-void tt_finish(void);
+void tt_free(void);
 
 #endif

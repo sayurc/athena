@@ -19,8 +19,8 @@
 #ifndef RNG_H
 #define RNG_H
 
-void rng_seed(u64 n);
-u64 rng_next(void);
-u64 rng_next_sparse(void);
+void seed_rng(u64 n);
+u64 next_rand(void);
+u64 next_sparse_rand(void);
 
 #endif

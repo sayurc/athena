@@ -84,7 +84,7 @@ static unsigned long long find_prime(unsigned long long n)
 static void init_hash(void)
 {
 	for (size_t i = 0; i < ZOBRIST_ARRAY_SIZE; ++i) {
-		zobrist_numbers[i] = rng_next();
+		zobrist_numbers[i] = next_rand();
 		for (size_t j = 0; j < i; ++j) {
 			if (zobrist_numbers[i] == zobrist_numbers[j])
 				--i;
@@ -92,13 +92,13 @@ static void init_hash(void)
 	}
 }
 
-u64 tt_hash(const Position *pos)
+u64 hash_pos(const Position *pos)
 {
 	u64 key = 0;
 	u64 *ptr = zobrist_numbers;
 
 	for (Square sq = 0; sq < NUM_SQUARES; ++sq) {
-		const Piece piece = pos_get_piece_at(pos, sq);
+		const Piece piece = get_piece_at(pos, sq);
 		if (piece != PIECE_NONE)
 			key ^= ptr[NUM_SQUARES * piece + sq];
 	}
@@ -106,9 +106,9 @@ u64 tt_hash(const Position *pos)
 
 	u8 rights = 0;
 	for (Color color = COLOR_WHITE; color <= COLOR_BLACK; ++color) {
-		const bool has_king_right  = pos_has_castling_right(pos, color,
+		const bool has_king_right  = has_castling_right(pos, color,
 		                             CASTLING_SIDE_KING);
-		const bool has_queen_right = pos_has_castling_right(pos, color,
+		const bool has_queen_right = has_castling_right(pos, color,
 		                             CASTLING_SIDE_QUEEN);
 		rights = (has_king_right << 1) | has_queen_right;
 		rights <<= (2 * color);
@@ -116,14 +116,14 @@ u64 tt_hash(const Position *pos)
 	key ^= ptr[rights];
 	ptr += NUM_CASTLING_RIGHTS;
 
-	if (pos_enpassant_possible(pos)) {
-		const Square sq = pos_get_enpassant(pos);
-		const File file = pos_get_file(sq);
+	if (enpassant_possible(pos)) {
+		const Square sq = get_enpassant_square(pos);
+		const File file = get_file(sq);
 		key ^= ptr[file];
 	}
 	ptr += NUM_EN_PASSANT_FILES;
 
-	if (pos_get_side_to_move(pos) == COLOR_BLACK)
+	if (get_side_to_move(pos) == COLOR_BLACK)
 		key ^= ptr[0];
 
 	return key;
@@ -133,9 +133,9 @@ u64 tt_hash(const Position *pos)
  * It will return true if the node data is in the transposition table table and
  * false otherwise.
  */
-bool tt_get(NodeData *restrict data, const Position *restrict pos)
+bool get_tt_entry(NodeData *restrict data, const Position *restrict pos)
 {
-	const u64 node_hash = tt_hash(pos);
+	const u64 node_hash = hash_pos(pos);
 	const size_t key = node_hash % transposition_table.capacity;
 	struct node_data tt_data = transposition_table.ptr[key];
 	if (node_hash == tt_data.hash) {
@@ -145,23 +145,23 @@ bool tt_get(NodeData *restrict data, const Position *restrict pos)
 	return false;
 }
 
-void tt_store(const NodeData *data)
+void store_tt_entry(const NodeData *data)
 {
 	const size_t key = data->hash % transposition_table.capacity;
 	transposition_table.ptr[key] = *data;
 }
 
-void tt_entry_init(NodeData *data, int score, int depth, NodeType type,
+void init_tt_entry(NodeData *data, int score, int depth, NodeType type,
                    Move best_move, const Position *pos)
 {
 	data->score = score;
 	data->depth = depth;
 	data->type = type;
 	data->best_move = best_move;
-	data->hash = tt_hash(pos);
+	data->hash = hash_pos(pos);
 }
 
-void tt_prefetch(void)
+void prefetch_tt(void)
 {
 #ifdef __x86_64__
 	_mm_prefetch(transposition_table.ptr, _MM_HINT_T0);
@@ -187,7 +187,7 @@ static size_t compute_capacity(int size)
  * This function does nothing if the transposition table has not been
  * initialized.
  */
-void tt_clear(void)
+void clear_tt(void)
 {
 	NodeData *const ptr = transposition_table.ptr;
 	if (!ptr)
@@ -200,7 +200,7 @@ void tt_clear(void)
  * This function does nothing if the transposition table has not been
  * initialized.
  */
-void tt_resize(int size)
+void resize_tt(int size)
 {
 	if (!transposition_table.ptr)
 		return;
@@ -239,7 +239,7 @@ void tt_init(int size)
 	}
 }
 
-void tt_finish(void)
+void tt_free(void)
 {
 	transposition_table.capacity = 0;
 	free(transposition_table.ptr);

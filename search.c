@@ -84,14 +84,14 @@ static const int INF = SHRT_MAX;
 
 static void inc_pos_cnt(i8 *cnt, const Position *pos)
 {
-	const u64 hash = tt_hash(pos);
+	const u64 hash = hash_pos(pos);
 	const size_t key = hash % POS_CNT_TABLE_LEN;
 	++cnt[key];
 }
 
 static void dec_pos_cnt(i8 *cnt, const Position *pos)
 {
-	const u64 hash = tt_hash(pos);
+	const u64 hash = hash_pos(pos);
 	const size_t key = hash % POS_CNT_TABLE_LEN;
 	--cnt[key];
 }
@@ -103,14 +103,14 @@ void init_pos_cnt_table(struct search_data *data,
 		return;
 	memset(data->pos_cnt, 0, sizeof(data->pos_cnt));
 
-	Position *prev_pos = pos_copy(data->pos);
+	Position *prev_pos = copy_pos(data->pos);
 
 	for (int i = params->num_moves - 1; i >= 0; --i) {
-		move_undo(prev_pos, params->moves[i]);
+		undo_move(prev_pos, params->moves[i]);
 		inc_pos_cnt(data->pos_cnt, prev_pos);
 	}
 
-	pos_destroy(prev_pos);
+	destroy_pos(prev_pos);
 }
 
 /*
@@ -148,13 +148,13 @@ static Move get_ply_move(int ply, struct search_data *data,
  */
 static bool repeated(struct search_data *data, const struct parameters *params)
 {
-	const u64 hash = tt_hash(data->pos);
+	const u64 hash = hash_pos(data->pos);
 	const size_t key = hash % POS_CNT_TABLE_LEN;
 
 	if (data->pos_cnt[key] <= 1)
 		return false;
 
-	Position *prev_pos = pos_copy(data->pos);
+	Position *prev_pos = copy_pos(data->pos);
 
 	for (int ply = data->ply;; --ply) {
 		/* One position is skipped because it's impossible that it's the
@@ -162,28 +162,28 @@ static bool repeated(struct search_data *data, const struct parameters *params)
 		Move move = get_ply_move(ply, data, params);
 		if (!move)
 			break;
-		move_undo(prev_pos, move);
+		undo_move(prev_pos, move);
 		--ply;
 
 		move = get_ply_move(ply, data, params);
 		if (!move)
 			break;
 
-		const Square from = move_get_origin(move);
-		const Piece piece = pos_get_piece_at(prev_pos, from);
-		const PieceType pt = pos_get_piece_type(piece);
+		const Square from = get_move_origin(move);
+		const Piece piece = get_piece_at(prev_pos, from);
+		const PieceType pt = get_piece_type(piece);
 		if (!move_is_quiet(move) || move_is_castling(move) ||
 		    pt == PIECE_TYPE_PAWN)
 			break;
 
-		move_undo(prev_pos, move);
+		undo_move(prev_pos, move);
 		if (pos_equal(data->pos, prev_pos)) {
-			pos_destroy(prev_pos);
+			destroy_pos(prev_pos);
 			return true;
 		}
 	}
 
-	pos_destroy(prev_pos);
+	destroy_pos(prev_pos);
 
 	return false;
 }
@@ -252,7 +252,7 @@ static Move get_next_move(const Move *restrict moves, size_t len,
 	for (size_t i = 0; i < len; ++i) {
 		const Move move = moves[i];
 		NodeData pos_data;
-		if (tt_get(&pos_data, pos) &&
+		if (get_tt_entry(&pos_data, pos) &&
 		    pos_data.type == NODE_TYPE_EXACT) {
 			if (move == pos_data.best_move)
 				return i;
@@ -264,12 +264,12 @@ static Move get_next_move(const Move *restrict moves, size_t len,
 		int score = 0;
 		if (is_killer(move, killers))
 			score = killer_offset +
-			        eval_evaluate_move(move, pos);
+			        evaluate_move(move, pos);
 		else if (move_is_capture(move))
 			score = capture_offset +
-			        eval_evaluate_move(move, pos);
+			        evaluate_move(move, pos);
 		else
-			score = eval_evaluate_move(move, pos);
+			score = evaluate_move(move, pos);
 
 		if (score > best_score) {
 			best_idx = i;
@@ -297,13 +297,13 @@ struct search_data *data, bool *ended)
 			continue;
 
 		NodeData pos_data;
-		if (tt_get(&pos_data, data->pos) &&
+		if (get_tt_entry(&pos_data, data->pos) &&
 		    pos_data.type == NODE_TYPE_EXACT) {
 			if (move == pos_data.best_move)
 				return i;
 		}
 
-		int score = eval_evaluate_move(move, data->pos);
+		int score = evaluate_move(move, data->pos);
 		if (score > best_score) {
 			best_idx = i;
 			best_score = score;
@@ -318,9 +318,9 @@ struct search_data *data, bool *ended)
 
 static bool is_in_check(const Position *pos)
 {
-	const Color c = pos_get_side_to_move(pos);
-	const Square king_sq = pos_get_king_square(pos, c);
-	return movegen_is_square_attacked(king_sq, !c, pos);
+	const Color c = get_side_to_move(pos);
+	const Square king_sq = get_king_square(pos, c);
+	return is_square_attacked(king_sq, !c, pos);
 }
 
 static bool has_legal_moves(const Move *moves, size_t len, Position *pos)
@@ -396,7 +396,7 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 		return 0;
 
 	NodeData pos_data;
-	if (tt_get(&pos_data, data->pos) && pos_data.depth >= depth) {
+	if (get_tt_entry(&pos_data, data->pos) && pos_data.depth >= depth) {
 		const NodeType type = pos_data.type;
 		const int score = ttscore_to_score(pos_data.score, data->ply);
 		if (type == NODE_TYPE_EXACT ||
@@ -407,7 +407,7 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 	}
 
 	NodeType type = NODE_TYPE_ALPHA_UNCHANGED;
-	int best_score = eval_evaluate(data->pos);;
+	int best_score = evaluate(data->pos);;
 	Move best_move = 0;
 
 	/* Only return early if not in check otherwise checkmates won't be
@@ -419,7 +419,7 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 
 	bool has_legal = false;
 	size_t len = 0;
-	Move *const moves_ptr = movegen_get_pseudo_legal_moves(data->pos, &len);
+	Move *const moves_ptr = get_pseudo_legal_moves(data->pos, &len);
 	for (Move *moves = moves_ptr; len; --len, ++moves) {
 		if (len > 1) {
 			Move first = moves[0];
@@ -447,15 +447,15 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 		if (!move_is_legal(data->pos, move) || !move_is_capture(move))
 			continue;
 
-		move_do(data->pos, move);
+		do_move(data->pos, move);
 		inc_pos_cnt(data->pos_cnt, data->pos);
 		++data->ply;
 		data->move_made[data->ply] = move;
-		tt_prefetch();
+		prefetch_tt();
 		int score = -qsearch(depth - 1, -beta, -alpha, data, info,
 		                     params);
 		dec_pos_cnt(data->pos_cnt, data->pos);
-		move_undo(data->pos, move);
+		undo_move(data->pos, move);
 		--data->ply;
 
 		if (score > best_score) {
@@ -487,8 +487,8 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 	}
 
 	if (*params->running) {
-		tt_entry_init(&pos_data, score_to_ttscore(best_score, data->ply), depth, type, best_move, data->pos);
-		tt_store(&pos_data);
+		init_tt_entry(&pos_data, score_to_ttscore(best_score, data->ply), depth, type, best_move, data->pos);
+		store_tt_entry(&pos_data);
 	}
 
 	return best_score;
@@ -529,7 +529,7 @@ struct info *info, const struct parameters *params)
 		return 0;
 
 	NodeData pos_data;
-	if (tt_get(&pos_data, data->pos) && pos_data.depth >= depth) {
+	if (get_tt_entry(&pos_data, data->pos) && pos_data.depth >= depth) {
 		const NodeType type = pos_data.type;
 		const int score = ttscore_to_score(pos_data.score, data->ply);
 		if (type == NODE_TYPE_EXACT ||
@@ -554,9 +554,9 @@ struct info *info, const struct parameters *params)
 	Move best_move = 0;
 	bool has_legal = 0;
 	size_t len = 0;
-	Move *const moves_ptr = movegen_get_pseudo_legal_moves(data->pos, &len);
+	Move *const moves_ptr = get_pseudo_legal_moves(data->pos, &len);
 
-	int eval = eval_evaluate(data->pos);
+	int eval = evaluate(data->pos);
 
 	for (Move *moves = moves_ptr; len; --len, ++moves) {
 		/* Lazily sort moves instead of doing it all at once, this way
@@ -601,15 +601,15 @@ struct info *info, const struct parameters *params)
 			}
 		}
 
-		move_do(data->pos, move);
+		do_move(data->pos, move);
 		inc_pos_cnt(data->pos_cnt, data->pos);
 		++data->ply;
 		data->move_made[data->ply] = move;
-		tt_prefetch();
+		prefetch_tt();
 		int score = -negamax(depth - 1, -beta, -alpha, data, info,
 		                     params);
 		dec_pos_cnt(data->pos_cnt, data->pos);
-		move_undo(data->pos, move);
+		undo_move(data->pos, move);
 		--data->ply;
 
 		if (score > best_score) {
@@ -643,8 +643,8 @@ struct info *info, const struct parameters *params)
 	}
 
 	if (*params->running) {
-		tt_entry_init(&pos_data, score_to_ttscore(best_score, data->ply), depth, type, best_move, data->pos);
-		tt_store(&pos_data);
+		init_tt_entry(&pos_data, score_to_ttscore(best_score, data->ply), depth, type, best_move, data->pos);
+		store_tt_entry(&pos_data);
 	}
 
 	return best_score;
@@ -665,19 +665,19 @@ void search_init(int tt_size)
 	eval_init();
 }
 
-void search_clear_hash_table(void)
+void clear_hash_table(void)
 {
-	tt_clear();
+	clear_tt();
 }
 
-void search_resize_hash_table(int tt_size)
+void resize_hash_table(int tt_size)
 {
-	tt_resize(tt_size);
+	resize_tt(tt_size);
 }
 
-void search_finish(void)
+void search_free(void)
 {
-	tt_finish();
+	tt_free();
 }
 
 /*
@@ -717,7 +717,7 @@ static struct result search(const struct parameters *params)
 	struct search_data data;
 	data.ply = 0;
 	data.nodes = 0;
-	data.pos = pos_copy(params->pos);
+	data.pos = copy_pos(params->pos);
 	memset(data.move_made, 0, sizeof(data.move_made));
 	memset(data.killers, 0, sizeof(data.killers));
 	init_pos_cnt_table(&data, params);
@@ -735,7 +735,7 @@ static struct result search(const struct parameters *params)
 	int alpha = -INF, beta = INF;
 
 	size_t len;
-	Move *const moves = movegen_get_pseudo_legal_moves(params->pos, &len);
+	Move *const moves = get_pseudo_legal_moves(params->pos, &len);
 
 	struct timespec ts1, ts2;
 	long long old_nodes = info.nodes;
@@ -755,16 +755,16 @@ static struct result search(const struct parameters *params)
 		if (!move_is_legal(data.pos, move))
 			continue;
 
-		move_do(data.pos, move);
+		do_move(data.pos, move);
 		++data.ply;
 		inc_pos_cnt(data.pos_cnt, data.pos);
 		data.move_made[data.ply] = move;
-		tt_prefetch();
+		prefetch_tt();
 		int score = -negamax(params->depth - 1, -beta, -alpha, &data,
 		                     &info, params);
 		dec_pos_cnt(data.pos_cnt, data.pos);
 		--data.ply;
-		move_undo(data.pos, move);
+		undo_move(data.pos, move);
 
 		if (score > alpha) {
 			alpha = score;
@@ -809,7 +809,7 @@ static struct result search(const struct parameters *params)
 	free(moves);
 
 	dec_pos_cnt(data.pos_cnt, data.pos);
-	pos_destroy(data.pos);
+	destroy_pos(data.pos);
 
 	return result;
 }
@@ -819,7 +819,7 @@ static void perft(const struct parameters *params)
 	struct info info;
 	struct timespec ts1, ts2;
 
-	Position *const pos = pos_copy(params->pos);
+	Position *const pos = copy_pos(params->pos);
 
 	timespec_get(&ts1, TIME_UTC);
 	info.nodes = movegen_perft(pos, params->depth);
@@ -832,7 +832,7 @@ static void perft(const struct parameters *params)
 	info.flags = INFO_FLAG_NODES | INFO_FLAG_NPS;
 	params->output(&info);
 
-	pos_destroy(pos);
+	destroy_pos(pos);
 }
 
 /*
@@ -874,7 +874,7 @@ static long long compute_search_time(const Position *pos, long long time,
 		factor /= pow(time / 1000. + 1., 1.1);
 		return time * factor;
 	}
-	const int phase = pos_get_phase(pos);
+	const int phase = get_phase(pos);
 	const size_t max = movestogo && movestogo < AVERAGE_GAME_LENGTH ?
 	                   movestogo : AVERAGE_GAME_LENGTH;
 	const double divisor = (max * (256 - phase) + 8 * phase) / 256;
@@ -910,7 +910,7 @@ static void add_time(struct timespec *ts, long long time)
  * enforce the threefold repetition rule so they should be in the order they
  * happened in the game.
  */
-int search_run(void *data)
+int run_search(void *data)
 {
 	struct search_argument *const arg = data;
 
@@ -937,7 +937,7 @@ int search_run(void *data)
 		return 0;
 	}
 
-	Color color = pos_get_side_to_move(arg->pos);
+	Color color = get_side_to_move(arg->pos);
 
 	struct parameters params;
 	params.pos = arg->pos;

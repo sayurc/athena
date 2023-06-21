@@ -163,30 +163,30 @@ static u64 get_south_ray(Square sq)
 
 static u64 get_northeast_ray(Square sq)
 {
-	return move_east(U64(0x8040201008040200), pos_get_file(sq)) <<
-	(pos_get_rank(sq) * 8);
+	return move_east(U64(0x8040201008040200), get_file(sq)) <<
+	(get_rank(sq) * 8);
 }
 
 static u64 get_northwest_ray(Square sq)
 {
 	u64 ray = move_west(U64(0x0102040810204000),
-	                    7 - pos_get_file(sq));
-	ray <<= pos_get_rank(sq) * 8;
+	                    7 - get_file(sq));
+	ray <<= get_rank(sq) * 8;
 	return ray;
 }
 
 static u64 get_southeast_ray(Square sq)
 {
-	u64 ray = move_east(U64(0x0002040810204080), pos_get_file(sq));
-	ray >>= (7 - pos_get_rank(sq)) * 8;
+	u64 ray = move_east(U64(0x0002040810204080), get_file(sq));
+	ray >>= (7 - get_rank(sq)) * 8;
 	return ray;
 }
 
 static u64 get_southwest_ray(Square sq)
 {
 	u64 ray = move_west(U64(0x0040201008040201),
-	                    7 - pos_get_file(sq));
-	ray >>= (7 - pos_get_rank(sq)) * 8;
+	                    7 - get_file(sq));
+	ray >>= (7 - get_rank(sq)) * 8;
 	return ray;
 }
 
@@ -321,8 +321,8 @@ static void init_magics_for_piece_type(PieceType piece_type)
 
 	size_t size;
 	for (Square sq = A1; sq <= H8; ++sq) {
-		const File f = pos_get_file(sq);
-		const Rank r = pos_get_rank(sq);
+		const File f = get_file(sq);
+		const Rank r = get_rank(sq);
 
 		const u64 edges  = ((file_bitboards[FILE_A] |
 		                     file_bitboards[FILE_H]) &
@@ -356,7 +356,7 @@ static void init_magics_for_piece_type(PieceType piece_type)
 		for (size_t i = 0, current_attempt = 0; i < size;) {
 			m->num = 0;
 			while (popcnt((m->num * m->mask) >> 56) < 6)
-				m->num = rng_next_sparse();
+				m->num = next_sparse_rand();
 			++current_attempt;
 			for (i = 0; i < size; ++i) {
 				int idx = (occ[i] * m->num) >> m->shift;
@@ -496,15 +496,15 @@ static void add_pushes(MoveList *restrict list, Square from, u64 occ,
 	u64 targets = get_single_push(from, occ, color);
 	if (targets) {
 		const Square to = get_ls1b(targets);
-		if ((color == COLOR_WHITE && pos_get_rank(to) == RANK_8) ||
-		(color == COLOR_BLACK && pos_get_rank(to) == RANK_1)) {
+		if ((color == COLOR_WHITE && get_rank(to) == RANK_8) ||
+		(color == COLOR_BLACK && get_rank(to) == RANK_1)) {
 			for (MoveType move_type = MOVE_KNIGHT_PROMOTION;
 			move_type <= MOVE_QUEEN_PROMOTION; ++move_type) {
-				const Move move = move_new(from, to, move_type);
+				const Move move = create_move(from, to, move_type);
 				add_move(list, move);
 			}
 		} else {
-			const Move move = move_new(from, to, MOVE_QUIET);
+			const Move move = create_move(from, to, MOVE_QUIET);
 			add_move(list, move);
 		}
 	}
@@ -516,7 +516,7 @@ static void add_double_pushes(MoveList *restrict list, Square from, u64 occ,
 	u64 targets = get_double_push(from, occ, color);
 	if (targets) {
 		const Square to = get_ls1b(targets);
-		const Move move = move_new(from, to, MOVE_DOUBLE_PAWN_PUSH);
+		const Move move = create_move(from, to, MOVE_DOUBLE_PAWN_PUSH);
 		add_move(list, move);
 	}
 }
@@ -527,16 +527,16 @@ static void add_pawn_attacks(MoveList *restrict list, Square from,
 	u64 targets = get_pawn_attacks(from, color) & enemy_pieces;
 	while (targets) {
 		const Square to = unset_ls1b(&targets);
-		if ((color == COLOR_WHITE && pos_get_rank(to) == RANK_8) ||
-		    (color == COLOR_BLACK && pos_get_rank(to) == RANK_1)) {
+		if ((color == COLOR_WHITE && get_rank(to) == RANK_8) ||
+		    (color == COLOR_BLACK && get_rank(to) == RANK_1)) {
 			for (MoveType move_type = MOVE_KNIGHT_PROMOTION_CAPTURE;
 			move_type <= MOVE_QUEEN_PROMOTION_CAPTURE;
 			++move_type) {
-				const Move move = move_new(from, to, move_type);
+				const Move move = create_move(from, to, move_type);
 				add_move(list, move);
 			}
 		} else {
-			const Move move = move_new(from, to, MOVE_CAPTURE);
+			const Move move = create_move(from, to, MOVE_CAPTURE);
 			add_move(list, move);
 		}
 	}
@@ -545,20 +545,20 @@ static void add_pawn_attacks(MoveList *restrict list, Square from,
 static void add_pawn_moves(MoveList *restrict list,
                            const Position *restrict pos)
 {
-	const Color color = pos_get_side_to_move(pos);
-	const Piece piece = pos_make_piece(PIECE_TYPE_PAWN,
+	const Color color = get_side_to_move(pos);
+	const Piece piece = create_piece(PIECE_TYPE_PAWN,
 	color);
-	const u64 enemy_pieces = pos_get_color_bitboard(pos, !color);
-	const u64 occ = enemy_pieces | pos_get_color_bitboard(pos, color);
+	const u64 enemy_pieces = get_color_bitboard(pos, !color);
+	const u64 occ = enemy_pieces | get_color_bitboard(pos, color);
 
-	u64 bb = pos_get_piece_bitboard(pos, piece);
-	if (pos_enpassant_possible(pos)) {
-		const Square sq = pos_get_enpassant(pos);
+	u64 bb = get_piece_bitboard(pos, piece);
+	if (enpassant_possible(pos)) {
+		const Square sq = get_enpassant_square(pos);
 		u64 attackers = get_pawn_attacks(sq, !color) & bb;
 		while (attackers) {
 			const Square from = unset_ls1b(&attackers);
 			const Square to = sq;
-			const Move move = move_new(from, to, MOVE_EP_CAPTURE);
+			const Move move = create_move(from, to, MOVE_EP_CAPTURE);
 			add_move(list, move);
 		}
 	}
@@ -574,23 +574,23 @@ static void add_pawn_moves(MoveList *restrict list,
 static void add_king_castling(MoveList *restrict list,
                               const Position *restrict pos)
 {
-	const Color color = pos_get_side_to_move(pos);
-	const Square from = pos_get_king_square(pos, color);
+	const Color color = get_side_to_move(pos);
+	const Square from = get_king_square(pos, color);
 
-	if (pos_has_castling_right(pos, color, CASTLING_SIDE_KING)) {
+	if (has_castling_right(pos, color, CASTLING_SIDE_KING)) {
 		const Square k_castling_test_sq1 = color == COLOR_WHITE ? F1 :
 		                                                          F8;
 		const Square k_castling_test_sq2 = color == COLOR_WHITE ? G1 :
 		                                                          G8;
-		if (pos_get_piece_at(pos, k_castling_test_sq1) == PIECE_NONE &&
-		    pos_get_piece_at(pos, k_castling_test_sq2) == PIECE_NONE &&
-		    !movegen_is_square_attacked(k_castling_test_sq1, !color,
+		if (get_piece_at(pos, k_castling_test_sq1) == PIECE_NONE &&
+		    get_piece_at(pos, k_castling_test_sq2) == PIECE_NONE &&
+		    !is_square_attacked(k_castling_test_sq1, !color,
 		                                pos) &&
-		    !movegen_is_square_attacked(k_castling_test_sq2, !color,
+		    !is_square_attacked(k_castling_test_sq2, !color,
 		                                pos) &&
-		    !movegen_is_square_attacked(from, !color, pos)) {
+		    !is_square_attacked(from, !color, pos)) {
 			const Square to   = color == COLOR_WHITE ? G1 : G8;
-			const Move move = move_new(from, to, MOVE_KING_CASTLE);
+			const Move move = create_move(from, to, MOVE_KING_CASTLE);
 			add_move(list, move);
 		}
 	}
@@ -599,26 +599,26 @@ static void add_king_castling(MoveList *restrict list,
 static void add_queen_castling(MoveList *restrict list,
                               const Position *restrict pos)
 {
-	const Color color = pos_get_side_to_move(pos);
-	const Square from = pos_get_king_square(pos, color);
+	const Color color = get_side_to_move(pos);
+	const Square from = get_king_square(pos, color);
 
-	if (pos_has_castling_right(pos, color, CASTLING_SIDE_QUEEN)) {
+	if (has_castling_right(pos, color, CASTLING_SIDE_QUEEN)) {
 		const Square q_castling_test_sq1 = color == COLOR_WHITE ? D1 :
 		                                                          D8;
 		const Square q_castling_test_sq2 = color == COLOR_WHITE ? C1 :
 		                                                          C8;
 		const Square q_castling_test_sq3 = color == COLOR_WHITE ? B1 :
 		                                                          B8;
-		if (pos_get_piece_at(pos, q_castling_test_sq1) == PIECE_NONE &&
-		    pos_get_piece_at(pos, q_castling_test_sq2) == PIECE_NONE &&
-		    pos_get_piece_at(pos, q_castling_test_sq3) == PIECE_NONE &&
-		    !movegen_is_square_attacked(q_castling_test_sq1, !color,
+		if (get_piece_at(pos, q_castling_test_sq1) == PIECE_NONE &&
+		    get_piece_at(pos, q_castling_test_sq2) == PIECE_NONE &&
+		    get_piece_at(pos, q_castling_test_sq3) == PIECE_NONE &&
+		    !is_square_attacked(q_castling_test_sq1, !color,
 		                                pos) &&
-		    !movegen_is_square_attacked(q_castling_test_sq2, !color,
+		    !is_square_attacked(q_castling_test_sq2, !color,
 		                                pos) &&
-		    !movegen_is_square_attacked(from, !color, pos)) {
+		    !is_square_attacked(from, !color, pos)) {
 			const Square to   = color == COLOR_WHITE ? C1 : C8;
-			const Move move = move_new(from, to, MOVE_QUEEN_CASTLE);
+			const Move move = create_move(from, to, MOVE_QUEEN_CASTLE);
 			add_move(list, move);
 		}
 	}
@@ -627,11 +627,11 @@ static void add_queen_castling(MoveList *restrict list,
 static void add_king_moves(MoveList *restrict list,
                            const Position *restrict pos)
 {
-	const Color color = pos_get_side_to_move(pos);
-	const Square from = pos_get_king_square(pos, color);
-	const u64 occ = pos_get_color_bitboard(pos, color) |
-	pos_get_color_bitboard(pos, !color);
-	const u64 friendly_pieces = occ & pos_get_color_bitboard(pos, color);
+	const Color color = get_side_to_move(pos);
+	const Square from = get_king_square(pos, color);
+	const u64 occ = get_color_bitboard(pos, color) |
+	get_color_bitboard(pos, !color);
+	const u64 friendly_pieces = occ & get_color_bitboard(pos, color);
 
 	add_king_castling(list, pos);
 	add_queen_castling(list, pos);
@@ -639,9 +639,9 @@ static void add_king_moves(MoveList *restrict list,
 	u64 targets = get_king_attacks(from) & ~friendly_pieces;
 	while (targets) {
 		const Square to = unset_ls1b(&targets);
-		const Move move = pos_get_piece_at(pos, to) == PIECE_NONE ?
-		                  move_new(from, to, MOVE_QUIET) :
-		                  move_new(from, to, MOVE_CAPTURE);
+		const Move move = get_piece_at(pos, to) == PIECE_NONE ?
+		                  create_move(from, to, MOVE_QUIET) :
+		                  create_move(from, to, MOVE_CAPTURE);
 		add_move(list, move);
 	}
 }
@@ -660,13 +660,13 @@ static void add_moves(MoveList *restrict list, PieceType piece_type,
 		break;
 	}
 
-	const Color color = pos_get_side_to_move(pos);
-	const Piece piece = pos_make_piece(piece_type, color);
-	const u64 occ = pos_get_color_bitboard(pos, color) |
-	                pos_get_color_bitboard(pos, !color);
-	const u64 friendly_pieces = occ & pos_get_color_bitboard(pos, color);
+	const Color color = get_side_to_move(pos);
+	const Piece piece = create_piece(piece_type, color);
+	const u64 occ = get_color_bitboard(pos, color) |
+	                get_color_bitboard(pos, !color);
+	const u64 friendly_pieces = occ & get_color_bitboard(pos, color);
 
-	u64 bb = pos_get_piece_bitboard(pos, piece);
+	u64 bb = get_piece_bitboard(pos, piece);
 	while (bb) {
 		const Square from = unset_ls1b(&bb);
 		u64 targets = 0;
@@ -689,63 +689,17 @@ static void add_moves(MoveList *restrict list, PieceType piece_type,
 		targets &= ~friendly_pieces;
 		while (targets) {
 			const Square to = unset_ls1b(&targets);
-			const Move move = pos_get_piece_at(pos, to) == PIECE_NONE ?
-			                  move_new(from, to, MOVE_QUIET) :
-			                  move_new(from, to, MOVE_CAPTURE);
+			const Move move = get_piece_at(pos, to) == PIECE_NONE ?
+			                  create_move(from, to, MOVE_QUIET) :
+			                  create_move(from, to, MOVE_CAPTURE);
 			add_move(list, move);
 		}
 	}
 }
 
-int movegen_get_number_of_pseudo_legal_moves(PieceType piece_type, Color c,
-                                             const Position *restrict pos)
-{
-	const Piece piece = pos_make_piece(piece_type, c);
-	const u64 occ = pos_get_color_bitboard(pos, c)
-	              | pos_get_color_bitboard(pos, !c);
-	const u64 friendly_pieces = occ & pos_get_color_bitboard(pos, c);
-
-	int cnt = 0;
-	u64 bb = pos_get_piece_bitboard(pos, piece);
-	while (bb) {
-		const Square sq = unset_ls1b(&bb);
-		u64 targets = 0;
-		switch (pos_get_piece_type(piece)) {
-		case PIECE_TYPE_PAWN:
-			targets = get_single_push(sq, occ, c) |
-			          get_double_push(sq, occ, c) |
-			          (get_pawn_attacks(sq, c) & ~friendly_pieces);
-			break;
-		case PIECE_TYPE_KNIGHT:
-			targets = get_knight_attacks(sq) &
-			~friendly_pieces;
-			break;
-		case PIECE_TYPE_ROOK:
-			targets = get_rook_attacks(sq, occ) &
-			~friendly_pieces;
-			break;
-		case PIECE_TYPE_BISHOP:
-			targets = get_bishop_attacks(sq, occ) &
-			~friendly_pieces;
-			break;
-		case PIECE_TYPE_QUEEN:
-			targets = get_queen_attacks(sq, occ) &
-			~friendly_pieces;
-			break;
-		case PIECE_TYPE_KING:
-			targets = get_king_attacks(sq) &
-			~friendly_pieces;
-			break;
-		}
-		cnt += popcnt(targets);
-	}
-
-	return cnt;
-}
-
 void movegen_init(void)
 {
-	rng_seed(374583);
+	seed_rng(374583);
 	init_rays();
 	init_magics();
 	init_knight_attacks();
@@ -763,33 +717,33 @@ void movegen_init(void)
  * pawn moves are the inverse of the pawn moves, so we can just use the opposite
  * side's attacks for pawns.
  */
-bool movegen_is_square_attacked(Square sq, Color by_side,
+bool is_square_attacked(Square sq, Color by_side,
                                 const Position *restrict pos)
 {
-	const u64 occ = pos_get_color_bitboard(pos, by_side)
-	              | pos_get_color_bitboard(pos, !by_side);
+	const u64 occ = get_color_bitboard(pos, by_side)
+	              | get_color_bitboard(pos, !by_side);
 
-	Piece piece = pos_make_piece(PIECE_TYPE_PAWN, by_side);
-	const u64 pawns = pos_get_piece_bitboard(pos, piece);
+	Piece piece = create_piece(PIECE_TYPE_PAWN, by_side);
+	const u64 pawns = get_piece_bitboard(pos, piece);
 	if (get_pawn_attacks(sq, !by_side) & pawns)
 		return true;
-	piece = pos_make_piece(PIECE_TYPE_KNIGHT, by_side);
-	const u64 knights = pos_get_piece_bitboard(pos, piece);
+	piece = create_piece(PIECE_TYPE_KNIGHT, by_side);
+	const u64 knights = get_piece_bitboard(pos, piece);
 	if (get_knight_attacks(sq) & knights)
 		return true;
-	piece = pos_make_piece(PIECE_TYPE_ROOK, by_side);
-	u64 rooks_queens = pos_get_piece_bitboard(pos, piece);
-	piece = pos_make_piece(PIECE_TYPE_QUEEN, by_side);
-	rooks_queens |= pos_get_piece_bitboard(pos, piece);
+	piece = create_piece(PIECE_TYPE_ROOK, by_side);
+	u64 rooks_queens = get_piece_bitboard(pos, piece);
+	piece = create_piece(PIECE_TYPE_QUEEN, by_side);
+	rooks_queens |= get_piece_bitboard(pos, piece);
 	if (get_rook_attacks(sq, occ) & rooks_queens)
 		return true;
-	u64 bishops_queens = pos_get_piece_bitboard(pos, piece);
-	piece = pos_make_piece(PIECE_TYPE_BISHOP, by_side);
-	bishops_queens |= pos_get_piece_bitboard(pos, piece);
+	u64 bishops_queens = get_piece_bitboard(pos, piece);
+	piece = create_piece(PIECE_TYPE_BISHOP, by_side);
+	bishops_queens |= get_piece_bitboard(pos, piece);
 	if (get_bishop_attacks(sq, occ) & bishops_queens)
 		return true;
-	piece = pos_make_piece(PIECE_TYPE_KING, by_side);
-	const u64 king = pos_get_piece_bitboard(pos, piece);
+	piece = create_piece(PIECE_TYPE_KING, by_side);
+	const u64 king = get_piece_bitboard(pos, piece);
 	if (get_king_attacks(sq) & king)
 		return true;
 	return false;
@@ -800,7 +754,7 @@ bool movegen_is_square_attacked(Square sq, Color by_side,
  * (that is, moves that may put the king in check), or NULL if no moves are
  * possible.
  */
-Move *movegen_get_pseudo_legal_moves(const Position *restrict pos,
+Move *get_pseudo_legal_moves(const Position *restrict pos,
                                      size_t *restrict len)
 {
 	const size_t initial_capacity = 2 << 8;
@@ -834,11 +788,11 @@ Move *movegen_get_pseudo_legal_moves(const Position *restrict pos,
  * counts pieces that are attacking a square directly, so a rook behind another
  * rook will not be included.
  */
-u64 movegen_get_attackers(Square sq, const Position *restrict pos)
+u64 get_attackers(Square sq, const Position *restrict pos)
 {
-	const u64 occ = pos_get_color_bitboard(pos, COLOR_WHITE)
-	              | pos_get_color_bitboard(pos, COLOR_BLACK);
-	u64 (*const get_bb)(const Position *, Piece) = pos_get_piece_bitboard;
+	const u64 occ = get_color_bitboard(pos, COLOR_WHITE)
+	              | get_color_bitboard(pos, COLOR_BLACK);
+	u64 (*const get_bb)(const Position *, Piece) = get_piece_bitboard;
 
 	const u64 white_pawns = get_bb(pos, PIECE_BLACK_PAWN);
 	const u64 black_pawns = get_bb(pos, PIECE_WHITE_PAWN);
@@ -863,35 +817,6 @@ u64 movegen_get_attackers(Square sq, const Position *restrict pos)
 	     | (get_rook_attacks(sq, occ)         & rooks_queens);
 }
 
-/*
- * Returns a bitboard containing the squares attacked by a piece at square sq.
- */
-u64 movegen_get_attacked_squares(Square sq, const Position *restrict pos)
-{
-	const Piece piece = pos_get_piece_at(pos, sq);
-	const Color color = pos_get_piece_color(piece);
-	const PieceType pt = pos_get_piece_type(piece);
-	const u64 occ = pos_get_color_bitboard(pos, COLOR_WHITE)
-	              | pos_get_color_bitboard(pos, COLOR_BLACK);
-
-	switch (pt) {
-	case PIECE_TYPE_PAWN:
-		return get_pawn_attacks(sq, color);
-	case PIECE_TYPE_KNIGHT:
-		return get_knight_attacks(sq);
-	case PIECE_TYPE_BISHOP:
-		return get_bishop_attacks(sq, occ);
-	case PIECE_TYPE_ROOK:
-		return get_rook_attacks(sq, occ);
-	case PIECE_TYPE_QUEEN:
-		return get_queen_attacks(sq, occ);
-	case PIECE_TYPE_KING:
-		return get_king_attacks(sq);
-	default:
-		abort();
-	}
-}
-
 u64 movegen_perft(Position *restrict pos, int depth)
 {
 	u64 nodes = 0;
@@ -899,14 +824,14 @@ u64 movegen_perft(Position *restrict pos, int depth)
 	if (!depth)
 		return 1;
 	size_t len;
-	Move *moves = movegen_get_pseudo_legal_moves(pos, &len);
+	Move *moves = get_pseudo_legal_moves(pos, &len);
 	for (size_t i = 0; i < len; ++i) {
 		Move move = moves[i];
 		if (!move_is_legal(pos, move))
 			continue;
-		move_do(pos, move);
+		do_move(pos, move);
 		nodes += movegen_perft(pos, depth - 1);
-		move_undo(pos, move);
+		undo_move(pos, move);
 	}
 	free(moves);
 	return nodes;
