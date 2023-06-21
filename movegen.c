@@ -504,7 +504,7 @@ static void add_pushes(MoveList *restrict list, Square from, u64 occ,
 				add_move(list, move);
 			}
 		} else {
-			const Move move = create_move(from, to, MOVE_QUIET);
+			const Move move = create_move(from, to, MOVE_OTHER);
 			add_move(list, move);
 		}
 	}
@@ -640,7 +640,7 @@ static void add_king_moves(MoveList *restrict list,
 	while (targets) {
 		const Square to = unset_ls1b(&targets);
 		const Move move = get_piece_at(pos, to) == PIECE_NONE ?
-		                  create_move(from, to, MOVE_QUIET) :
+		                  create_move(from, to, MOVE_OTHER) :
 		                  create_move(from, to, MOVE_CAPTURE);
 		add_move(list, move);
 	}
@@ -690,7 +690,7 @@ static void add_moves(MoveList *restrict list, PieceType piece_type,
 		while (targets) {
 			const Square to = unset_ls1b(&targets);
 			const Move move = get_piece_at(pos, to) == PIECE_NONE ?
-			                  create_move(from, to, MOVE_QUIET) :
+			                  create_move(from, to, MOVE_OTHER) :
 			                  create_move(from, to, MOVE_CAPTURE);
 			add_move(list, move);
 		}

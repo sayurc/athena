@@ -32,7 +32,7 @@
  */
 
 typedef enum move_type {
-	MOVE_QUIET,
+	MOVE_OTHER,
 	MOVE_DOUBLE_PAWN_PUSH,
 	MOVE_KING_CASTLE,
 	MOVE_QUEEN_CASTLE,

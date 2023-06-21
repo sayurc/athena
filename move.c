@@ -59,8 +59,8 @@ const Color color = get_piece_color(piece);\
 if (choice_##do_or_undo == choice_do)\
 	start_new_irreversible_state(pos);\
 \
-if (type == MOVE_QUIET)\
-	do_or_undo##_quiet(pos, from, to, piece);\
+if (type == MOVE_OTHER)\
+	do_or_undo##_other(pos, from, to, piece);\
 else if (type == MOVE_DOUBLE_PAWN_PUSH)\
 	do_or_undo##_double_push(pos, from, to, piece);\
 else if (type == MOVE_QUEEN_CASTLE || type == MOVE_KING_CASTLE)\
@@ -294,7 +294,7 @@ static void undo_double_push(Position *pos, Square from, Square to, Piece piece)
 		decrement_fullmove_counter(pos);
 }
 
-static void do_quiet(Position *pos, Square from, Square to, Piece piece)
+static void do_other(Position *pos, Square from, Square to, Piece piece)
 {
 	const PieceType pt = get_piece_type(piece);
 	const Color c = get_piece_color(piece);
@@ -330,7 +330,7 @@ static void do_quiet(Position *pos, Square from, Square to, Piece piece)
 		increment_fullmove_counter(pos);
 }
 
-static void undo_quiet(Position *pos, Square from, Square to, Piece piece)
+static void undo_other(Position *pos, Square from, Square to, Piece piece)
 {
 	const Color c = get_piece_color(piece);
 
