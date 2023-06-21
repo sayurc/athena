@@ -16,21 +16,4 @@
  * this program. If not, see <https://www.gnu.org/licenses/>. 
  */
 
-#ifndef MOVEGEN_H
-#define MOVEGEN_H
-
-u64 movegen_perft(Position *pos, int depth);
-u64 movegen_get_attacked_squares(Square sq, const Position *pos);
-u64 movegen_get_attackers(Square sq, const Position *pos);
-int movegen_get_number_of_moves_empty_board(Piece piece, Square sq);
-bool movegen_is_square_attacked(Square sq, Color by_side, const Position *pos);
-int movegen_get_number_of_pseudo_legal_moves(PieceType piece_type, Color c,
-                                             const Position *pos);
-Move *movegen_get_pseudo_legal_moves(const Position *pos, size_t *len);
-void movegen_init(void);
-
-#ifdef TEST
-#include "test_movegen.h"
-#endif
-
-#endif
+int test_movegen(void);

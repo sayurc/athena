@@ -51,16 +51,16 @@ typedef enum move_type {
 typedef u16 Move;
 
 bool move_is_legal(Position *pos, Move move);
-void undo_move(Position *pos, Move move);
-void do_move(Position *pos, Move move);
-Move create_move(Square from, Square to, MoveType type);
+void move_undo(Position *pos, Move move);
+void move_do(Position *pos, Move move);
+Move move_new(Square from, Square to, MoveType type);
 bool move_is_quiet(Move move);
 bool move_is_capture(Move move);
 bool move_is_promotion(Move move);
 bool move_is_castling(Move move);
-PieceType get_piece_type_of_promotion(Move move);
-Square get_origin_square(Move move);
-Square get_target_square(Move move);
-MoveType get_move_type(Move move);
+PieceType move_get_promotion_piece_type(Move move);
+Square move_get_origin(Move move);
+Square move_get_target(Move move);
+MoveType move_get_type(Move move);
 
 #endif

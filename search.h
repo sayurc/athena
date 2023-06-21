@@ -85,10 +85,10 @@ struct search_argument {
 	bool *running;
 };
 
-int run_search(void *data);
-void search_free(void);
-void clear_hash_table(void);
-void resize_hash_table(int tt_size);
+int search_run(void *data);
+void search_finish(void);
+void search_clear_hash_table(void);
+void search_resize_hash_table(int tt_size);
 void search_init(int size);
 
 #endif

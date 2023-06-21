@@ -25,6 +25,10 @@
 #include <stdarg.h>
 #include <limits.h>
 
+#ifdef TEST
+#include <check.h>
+#endif
+
 #include "bit.h"
 #include "str.h"
 #include "threads.h"
@@ -78,7 +82,7 @@ struct option {
 	
 	{.name = "Clear Hash",
 	 .type = OPTION_TYPE_BUTTON,
-	 .func = clear_hash_table},
+	 .func = search_clear_hash_table},
 };
 
 static struct option *get_option(const char *name)
@@ -118,13 +122,13 @@ static void move_to_lan(char *lan, Move move)
 		return;
 	}
 
-	const Square sq1 = get_origin_square(move);
-	const Square sq2 = get_target_square(move);
-	const MoveType type = get_move_type(move);
-	const File file1 = get_file(sq1);
-	const File file2 = get_file(sq2);
-	const Rank rank1 = get_rank(sq1);
-	const Rank rank2 = get_rank(sq2);
+	const Square sq1 = move_get_origin(move);
+	const Square sq2 = move_get_target(move);
+	const MoveType type = move_get_type(move);
+	const File file1 = pos_get_file(sq1);
+	const File file2 = pos_get_file(sq2);
+	const Rank rank1 = pos_get_rank(sq1);
+	const Rank rank2 = pos_get_rank(sq2);
 
 	lan[0] = file_to_char[file1];
 	lan[1] = rank_to_char[rank1];
@@ -148,7 +152,7 @@ static Move lan_to_move(const char *lan, const Position *pos, bool *success)
 {
 	char test_lan[MAX_LAN_LEN + 1];
 	size_t len;
-	Move *moves = get_pseudo_legal_moves(pos, &len);
+	Move *moves = movegen_get_pseudo_legal_moves(pos, &len);
 	for (size_t i = 0; i < len; ++i) {
 		Move move = moves[i];
 		move_to_lan(test_lan, move);
@@ -348,7 +352,7 @@ static void quit(void)
 		mtx_unlock(&search_running_mtx);
 	}
 	if (search_arg.pos) {
-		destroy_pos(search_arg.pos);
+		pos_destroy(search_arg.pos);
 		search_arg.pos = NULL;
 	}
 	if (search_arg.moves) {
@@ -360,7 +364,7 @@ static void quit(void)
 		if (op->type == OPTION_TYPE_STRING)
 			free(op->value.string);
 	}
-	search_free();
+	search_finish();
 }
 
 static void stop(void)
@@ -433,7 +437,7 @@ static void go(void)
 	}
 
 	if (thrd_create(&search_thread,
-	                run_search, &search_arg) == thrd_error) {
+	                search_run, &search_arg) == thrd_error) {
 		search_running = false;
 		perror("Athena");
 	}
@@ -460,14 +464,14 @@ static void init_search_arg(struct search_argument *arg)
 static void ucinewgame(void)
 {
 	if (search_arg.pos) {
-		destroy_pos(search_arg.pos);
+		pos_destroy(search_arg.pos);
 		search_arg.pos = NULL;
 	}
 	if (search_arg.moves) {
 		free(search_arg.moves);
 		search_arg.moves = NULL;
 	}
-	search_free();
+	search_finish();
 
 	const struct option *const hash = get_option("Hash");
 	if (!hash) {
@@ -510,7 +514,7 @@ static Move *parse_moves(Position *pos, size_t *len)
 			return NULL;
 		}
 
-		do_move(pos, moves[num - 1]);
+		move_do(pos, moves[num - 1]);
 	}
 
 	*len = num;
@@ -527,7 +531,7 @@ static void position(void)
 
 	const char *token = strtok(NULL, " ");
 	if (token && !strcmp(token, "startpos")) {
-		pos = create_pos(startpos);
+		pos = pos_create(startpos);
 	} else if (token && !strcmp(token, "fen")) {
 		char *fen = NULL;
 		const size_t num_parts = 6;
@@ -558,7 +562,7 @@ static void position(void)
 				--fen_len;
 			}
 		}
-		pos = create_pos(fen);
+		pos = pos_create(fen);
 		free(fen);
 		if (!pos)
 			return;
@@ -572,18 +576,18 @@ static void position(void)
 		return;
 	}
 	if (strcmp(token, "moves")) {
-		destroy_pos(pos);
+		pos_destroy(pos);
 		return;
 	}
 
 	if (search_arg.pos)
-		destroy_pos(search_arg.pos);
+		pos_destroy(search_arg.pos);
 	if (search_arg.moves)
 		free(search_arg.moves);
 	size_t moves_len;
 	search_arg.moves = parse_moves(pos, &moves_len);
 	if (!search_arg.moves) {
-		destroy_pos(pos);
+		pos_destroy(pos);
 		return;
 	}
 	search_arg.pos = pos;

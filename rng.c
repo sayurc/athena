@@ -35,7 +35,7 @@ static u64 rotl(u64 x, int k)
 	return (x << k) | (x >> (64 - k));
 }
 
-u64 next_rand(void)
+u64 rng_next(void)
 {
 	const u64 result = rotl(s[0] + s[3], 23) + s[0];
 	const u64 t = s[1] << 17;
@@ -59,7 +59,7 @@ u64 next_rand(void)
  */
 u64 rng_next_sparse(void)
 {
-	return next_rand() & next_rand() & next_rand();
+	return rng_next() & rng_next() & rng_next();
 }
 
 static u64 sm_next(void)
@@ -78,7 +78,7 @@ static void sm_seed(u64 n)
 	sm_s = n;
 }
 
-void seed_rng(u64 n)
+void rng_seed(u64 n)
 {
 	sm_seed(n);
 	const size_t len = sizeof(s) / sizeof(s[0]);

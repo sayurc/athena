@@ -30,9 +30,24 @@
 #include "move.h"
 #include "movegen.h"
 
+#ifndef TEST
+
 int main(void)
 {
 	uci_loop();
 
 	return EXIT_SUCCESS;
 }
+
+#else
+
+int main(void)
+{
+	int failed = 0;
+
+	failed += test_movegen();
+
+	return failed;
+}
+
+#endif

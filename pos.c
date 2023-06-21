@@ -147,8 +147,8 @@ static size_t parse_pieces(Position *pos, const char *str)
 			file += digit;
 		} else if (is_one_of("PNRBQKpnrbqk", ch)) {
 			Piece piece = table[(size_t)ch];
-			Square sq = file_rank_to_square(file, rank);
-			place_piece(pos, sq, piece);
+			Square sq = pos_file_rank_to_square(file, rank);
+			pos_place_piece(pos, sq, piece);
 			++file;
 		} else {
 			return 0;
@@ -182,19 +182,19 @@ static size_t parse_castling(Position *pos, const char *str)
 	for (; str[rc] && str[rc] != ' '; ++rc) {
 		switch (str[rc]) {
 		case 'K':
-			add_castling(pos, COLOR_WHITE,  CASTLING_SIDE_KING);
+			pos_add_castling(pos, COLOR_WHITE,  CASTLING_SIDE_KING);
 			++Kcnt;
 			break;
 		case 'Q':
-			add_castling(pos, COLOR_WHITE, CASTLING_SIDE_QUEEN);
+			pos_add_castling(pos, COLOR_WHITE, CASTLING_SIDE_QUEEN);
 			++Qcnt;
 			break;
 		case 'k':
-			add_castling(pos, COLOR_BLACK, CASTLING_SIDE_KING);
+			pos_add_castling(pos, COLOR_BLACK, CASTLING_SIDE_KING);
 			++kcnt;
 			break;
 		case 'q':
-			add_castling(pos, COLOR_BLACK, CASTLING_SIDE_QUEEN);
+			pos_add_castling(pos, COLOR_BLACK, CASTLING_SIDE_QUEEN);
 			++qcnt;
 			break;
 		default:
@@ -216,7 +216,7 @@ static size_t parse_enpassant(Position *pos, const char *str)
 		 (str[1] != '3' && str[1] != '6'))
 		return 0;
 	File file = str[0] - 'a';
-	set_enpassant(pos, file);
+	pos_set_enpassant(pos, file);
 	return 2;
 }
 
@@ -298,7 +298,7 @@ static size_t parse_fen(Position *pos, const char *fen)
  * where 0 is the initial phase and 256 is the final phase. This approach of
  * representing the game with several phases prevents evaluation discontinuity.
  */
-int get_phase(const Position *pos)
+int pos_get_phase(const Position *pos)
 {
 	const int weights[] = {
 		[PIECE_TYPE_PAWN] = 0, [PIECE_TYPE_KNIGHT] = 1,
@@ -316,8 +316,8 @@ int get_phase(const Position *pos)
 	for (Color c = COLOR_WHITE; c <= COLOR_BLACK; ++c) {
 		for (PieceType pt = PIECE_TYPE_PAWN; pt <= PIECE_TYPE_QUEEN;
 		     ++pt) {
-			Piece piece = create_piece(pt, c);
-			int num = get_number_of_pieces(pos, piece);
+			Piece piece = pos_make_piece(pt, c);
+			int num = pos_get_number_of_pieces(pos, piece);
 			phase -= num * weights[pt];
 		}
 	}
@@ -334,21 +334,21 @@ int get_phase(const Position *pos)
  */
 bool pos_equal(const Position *pos1, const Position *pos2)
 {
-	if (get_side_to_move(pos1) != get_side_to_move(pos2))
+	if (pos_get_side_to_move(pos1) != pos_get_side_to_move(pos2))
 		return false;
 	for (Color c = COLOR_WHITE; c <= COLOR_BLACK; ++c) {
 		for (CastlingSide s = CASTLING_SIDE_QUEEN;
 		     s <= CASTLING_SIDE_KING; ++s) {
-			const bool pos1_has = has_castling_right(pos1, c, s);
-			const bool pos2_has = has_castling_right(pos2, c, s);
+			const bool pos1_has = pos_has_castling_right(pos1, c, s);
+			const bool pos2_has = pos_has_castling_right(pos2, c, s);
 			if (pos1_has != pos2_has)
 				return false;
 		}
 	}
-	if (enpassant_possible(pos1) != enpassant_possible(pos2))
+	if (pos_enpassant_possible(pos1) != pos_enpassant_possible(pos2))
 		return false;
-	else if (enpassant_possible(pos1) && enpassant_possible(pos2)) {
-		if (get_enpassant_square(pos1) != get_enpassant_square(pos2))
+	else if (pos_enpassant_possible(pos1) && pos_enpassant_possible(pos2)) {
+		if (pos_get_enpassant(pos1) != pos_get_enpassant(pos2))
 			return false;
 	}
 	if (pos1->color_bb[COLOR_WHITE] != pos2->color_bb[COLOR_WHITE])
@@ -363,31 +363,96 @@ bool pos_equal(const Position *pos1, const Position *pos2)
 	return true;
 }
 
-void decrement_fullmove_counter(Position *pos)
+void pos_print(const Position *pos)
+{
+	const char piece_table[] = {
+		[PIECE_TYPE_PAWN ] = 'p', [PIECE_TYPE_KNIGHT] = 'n',
+		[PIECE_TYPE_ROOK ] = 'r', [PIECE_TYPE_BISHOP] = 'b',
+		[PIECE_TYPE_QUEEN] = 'q', [PIECE_TYPE_KING  ] = 'k',
+	};
+
+	Rank rank = RANK_8;
+	File file = FILE_A;
+	for (rank = RANK_8, file = FILE_A; file <= FILE_H || rank > RANK_1;) {
+		if (file > FILE_H) {
+			--rank;
+			file = FILE_A;
+			putchar('\n');
+		}
+
+		Square sq = pos_file_rank_to_square(file, rank);
+		Piece piece = pos_get_piece_at(pos, sq);
+		char ch = '\0';
+		if (piece == PIECE_NONE) {
+			ch = '0';
+		} else {
+			PieceType piece_type = pos_get_piece_type(piece);
+			Color color = pos_get_piece_color(piece);
+			ch = piece_table[piece_type];
+			if (color == COLOR_WHITE)
+				ch = toupper(ch);
+		}
+		printf("%c ", ch);
+		++file;
+	}
+	printf("\n\n");
+
+	Color color = pos_get_side_to_move(pos);
+	if (color == COLOR_WHITE)
+		printf("Turn: white\n");
+	else
+		printf("Turn: black\n");
+
+	printf("En passant: ");
+	if (pos_enpassant_possible(pos)) {
+		Square sq = pos_get_enpassant(pos);
+		file = pos_get_file(sq);
+		rank = pos_get_rank(sq);
+		printf("%c%d\n", file + 'A', rank + 1);
+	} else {
+		printf("-\n");
+	}
+
+	printf("Castling rights: ");
+	if (pos_has_castling_right(pos, COLOR_WHITE, CASTLING_SIDE_KING))
+		putchar('K');
+	if (pos_has_castling_right(pos, COLOR_WHITE, CASTLING_SIDE_QUEEN))
+		putchar('Q');
+	if (pos_has_castling_right(pos, COLOR_BLACK, CASTLING_SIDE_KING))
+		putchar('k');
+	if (pos_has_castling_right(pos, COLOR_BLACK, CASTLING_SIDE_QUEEN))
+		putchar('q');
+	printf("\n");
+
+	printf("Halfmove clock: %d\n", pos_get_halfmove_clock(pos));
+	printf("Fullmove counter: %d\n", pos_get_fullmove_counter(pos));
+}
+
+void pos_decrement_fullmove_counter(Position *pos)
 {
 	--pos->fullmove_counter;
 }
 
-void increment_fullmove_counter(Position *pos)
+void pos_increment_fullmove_counter(Position *pos)
 {
 	++pos->fullmove_counter;
 }
 
-void remove_castling(Position *pos, Color c, CastlingSide side)
+void pos_remove_castling(Position *pos, Color c, CastlingSide side)
 {
 	const size_t idx = pos->irr_state_idx;
 	u8 *const ptr = &pos->irr_states[idx].castling_rights_and_enpassant;
 	*ptr &= ~(1 << side << 2 * c);
 }
 
-void add_castling(Position *pos, Color c, CastlingSide side)
+void pos_add_castling(Position *pos, Color c, CastlingSide side)
 {
 	const size_t idx = pos->irr_state_idx;
 	u8 *const ptr = &pos->irr_states[idx].castling_rights_and_enpassant;
 	*ptr |= 1 << side << 2 * c;
 }
 
-void flip_side_to_move(Position *pos)
+void pos_flip_side_to_move(Position *pos)
 {
 	if (pos->side_to_move == COLOR_WHITE)
 		pos->side_to_move = COLOR_BLACK;
@@ -395,7 +460,7 @@ void flip_side_to_move(Position *pos)
 		pos->side_to_move = COLOR_WHITE;
 }
 
-void set_captured_piece(Position *pos, Piece piece)
+void pos_set_captured_piece(Position *pos, Piece piece)
 {
 	const size_t idx = pos->irr_state_idx;
 	pos->irr_states[idx].captured_piece = piece;
@@ -404,12 +469,12 @@ void set_captured_piece(Position *pos, Piece piece)
 /*
  * Remove a piece from a square.
  */
-void remove_piece(Position *pos, Square sq)
+void pos_remove_piece(Position *pos, Square sq)
 {
-	const Piece piece = get_piece_at(pos, sq);
+	const Piece piece = pos_get_piece_at(pos, sq);
 	const u64 bb = U64(0x1) << sq;
-	pos->color_bb[get_piece_color(piece)] &= ~bb;
-	pos->type_bb[get_piece_type(piece)]  &= ~bb;
+	pos->color_bb[pos_get_piece_color(piece)] &= ~bb;
+	pos->type_bb[pos_get_piece_type(piece)]  &= ~bb;
 	pos->board[sq] = PIECE_NONE;
 }
 
@@ -422,31 +487,31 @@ void remove_piece(Position *pos, Square sq)
  * new one if the pieces are of different types, the bitboard of the piece
  * being replaced would still store the piece as if it's still on the board,
  * because only the new piece's board would be modified. Because of that, the
- * old piece must be removed first with the remove_piece function by the caller.
- * The reason why this is not done here is to avoid slowing down code that
- * places a piece in an empty square.
+ * old piece must be removed first with the pos_remove_piece function by the
+ * caller. The reason why this is not done here is to avoid slowing down code
+ * that places a piece in an empty square.
  */
-void place_piece(Position *pos, Square sq, Piece piece)
+void pos_place_piece(Position *pos, Square sq, Piece piece)
 {
 	const u64 bb = U64(0x1) << sq;
 	if (pos->board[sq] != PIECE_NONE)
-		remove_piece(pos, sq);
-	pos->color_bb[get_piece_color(piece)] |= bb;
-	pos->type_bb[get_piece_type(piece)]  |= bb;
+		pos_remove_piece(pos, sq);
+	pos->color_bb[pos_get_piece_color(piece)] |= bb;
+	pos->type_bb[pos_get_piece_type(piece)]  |= bb;
 	pos->board[sq] = piece;
 }
 
-void reset_halfmove_clock(Position *pos)
+void pos_reset_halfmove_clock(Position *pos)
 {
 	pos->irr_states[pos->irr_state_idx].halfmove_clock = 0;
 }
 
-void increment_halfmove_clock(Position *pos)
+void pos_increment_halfmove_clock(Position *pos)
 {
 	++pos->irr_states[pos->irr_state_idx].halfmove_clock;
 }
 
-void unset_enpassant(Position *pos)
+void pos_unset_enpassant(Position *pos)
 {
 	const size_t idx = pos->irr_state_idx;
 	pos->irr_states[idx].castling_rights_and_enpassant &= 0xf;
@@ -455,7 +520,7 @@ void unset_enpassant(Position *pos)
 /*
  * Set the possibility of en passant and store the file.
  */
-void set_enpassant(Position *pos, File file)
+void pos_set_enpassant(Position *pos, File file)
 {
 	const size_t idx = pos->irr_state_idx;
 	pos->irr_states[idx].castling_rights_and_enpassant &= 0x8f;
@@ -463,35 +528,35 @@ void set_enpassant(Position *pos, File file)
 	pos->irr_states[idx].castling_rights_and_enpassant |= (file & 0x7) << 4;
 }
 
-Piece get_captured_piece(const Position *pos)
+Piece pos_get_captured_piece(const Position *pos)
 {
 	return pos->irr_states[pos->irr_state_idx].captured_piece;
 }
 
-int has_castling_right(const Position *pos, Color c, CastlingSide side)
+int pos_has_castling_right(const Position *pos, Color c, CastlingSide side)
 {
 	const size_t idx = pos->irr_state_idx;
 	u8 *const ptr = &pos->irr_states[idx].castling_rights_and_enpassant;
 	return (*ptr & 0x1 << side << 2 * c) != 0;
 }
 
-int get_fullmove_counter(const Position *pos)
+int pos_get_fullmove_counter(const Position *pos)
 {
 	return pos->fullmove_counter;
 }
 
-int get_halfmove_clock(const Position *pos)
+int pos_get_halfmove_clock(const Position *pos)
 {
 	return pos->irr_states[pos->irr_state_idx].halfmove_clock;
 }
 
-int enpassant_possible(const Position *pos)
+int pos_enpassant_possible(const Position *pos)
 {
 	const size_t idx = pos->irr_state_idx;
 	return pos->irr_states[idx].castling_rights_and_enpassant & 0x80;
 }
 
-Square get_enpassant_square(const Position *pos)
+Square pos_get_enpassant(const Position *pos)
 {
 	const size_t idx = pos->irr_state_idx;
 	u8 *const ptr = &pos->irr_states[idx].castling_rights_and_enpassant;
@@ -499,54 +564,54 @@ Square get_enpassant_square(const Position *pos)
 	const File f = (*ptr & 0x70) >> 4;
 	const Rank r = pos->side_to_move == COLOR_WHITE ? RANK_6 : RANK_3;
 
-	return file_rank_to_square(f, r);
+	return pos_file_rank_to_square(f, r);
 }
 
-Color get_side_to_move(const Position *pos)
+Color pos_get_side_to_move(const Position *pos)
 {
 	return pos->side_to_move;
 }
 
-Square get_king_square(const Position *pos, Color c)
+Square pos_get_king_square(const Position *pos, Color c)
 {
-	const Piece piece = create_piece(PIECE_TYPE_KING, c);
-	const u64 bb = get_piece_bitboard(pos, piece);
+	const Piece piece = pos_make_piece(PIECE_TYPE_KING, c);
+	const u64 bb = pos_get_piece_bitboard(pos, piece);
 	return get_ls1b(bb);
 }
 
-Piece get_piece_at(const Position *pos, Square sq)
+Piece pos_get_piece_at(const Position *pos, Square sq)
 {
 	return pos->board[sq];
 }
 
-int get_number_of_pieces(const Position *pos, Piece piece)
+int pos_get_number_of_pieces(const Position *pos, Piece piece)
 {
-	const u64 bb = get_piece_bitboard(pos, piece);
+	const u64 bb = pos_get_piece_bitboard(pos, piece);
 
 	return popcnt(bb);
 }
 
-int get_number_of_pieces_of_color(const Position *pos, Color c)
+int pos_get_number_of_pieces_of_color(const Position *pos, Color c)
 {
-	const u64 bb = get_color_bitboard(pos, c);
+	const u64 bb = pos_get_color_bitboard(pos, c);
 
 	return popcnt(bb);
 }
 
-u64 get_piece_bitboard(const Position *pos, Piece piece)
+u64 pos_get_piece_bitboard(const Position *pos, Piece piece)
 {
-	const PieceType type = get_piece_type(piece);
-	const Color color = get_piece_color(piece);
+	const PieceType type = pos_get_piece_type(piece);
+	const Color color = pos_get_piece_color(piece);
 	const u64 bb = pos->type_bb[type] & pos->color_bb[color];
 	return bb;
 }
 
-u64 get_color_bitboard(const Position *pos, Color c)
+u64 pos_get_color_bitboard(const Position *pos, Color c)
 {
 	return pos->color_bb[c];
 }
 
-void backtrack_irreversible_state(Position *pos)
+void pos_backtrack_irreversible_state(Position *pos)
 {
 	--pos->irr_state_idx;
 }
@@ -559,7 +624,7 @@ void backtrack_irreversible_state(Position *pos)
  * it onto the stack, making it the current one. The reversible state is
  * preserved since changes can be undone.
  */
-void start_new_irreversible_state(Position *pos)
+void pos_start_new_irreversible_state(Position *pos)
 {
 	pos->irr_state_idx += 1;
 	if (pos->irr_state_idx == pos->irr_state_cap) {
@@ -577,7 +642,7 @@ void start_new_irreversible_state(Position *pos)
 	pos->irr_states[idx] = pos->irr_states[idx - 1];
 }
 
-Position *copy_pos(const Position *pos)
+Position *pos_copy(const Position *pos)
 {
 	Position *copy = malloc(sizeof(Position));
 	if (!pos) {
@@ -609,7 +674,7 @@ Position *copy_pos(const Position *pos)
  * with 9 pawns. This is intentional, as the user might want to set up a
  * non-standard board.
  */
-Position *create_pos(const char *fen)
+Position *pos_create(const char *fen)
 {
 	Position *pos = malloc(sizeof(Position));
 	if (!pos) {
@@ -628,12 +693,12 @@ Position *create_pos(const char *fen)
 
 	pos->fullmove_counter = 0;
 	pos->irr_states[pos->irr_state_idx].captured_piece = PIECE_NONE;
-	reset_halfmove_clock(pos);
-	unset_enpassant(pos);
-	remove_castling(pos, COLOR_WHITE, CASTLING_SIDE_KING);
-	remove_castling(pos, COLOR_WHITE, CASTLING_SIDE_QUEEN);
-	remove_castling(pos, COLOR_BLACK, CASTLING_SIDE_KING);
-	remove_castling(pos, COLOR_BLACK, CASTLING_SIDE_QUEEN);
+	pos_reset_halfmove_clock(pos);
+	pos_unset_enpassant(pos);
+	pos_remove_castling(pos, COLOR_WHITE, CASTLING_SIDE_KING);
+	pos_remove_castling(pos, COLOR_WHITE, CASTLING_SIDE_QUEEN);
+	pos_remove_castling(pos, COLOR_BLACK, CASTLING_SIDE_KING);
+	pos_remove_castling(pos, COLOR_BLACK, CASTLING_SIDE_QUEEN);
 	for (Square sq = A1; sq <= H8; ++sq)
 		pos->board[sq] = PIECE_NONE;
 	for (size_t i = 0; i < 6; ++i)
@@ -643,49 +708,49 @@ Position *create_pos(const char *fen)
 
 	size_t rc = parse_fen(pos, fen);
 	if (rc != strlen(fen)) {
-		destroy_pos(pos);
+		pos_destroy(pos);
 		return NULL;
 	}
 	return pos;
 }
 
-void destroy_pos(Position *pos)
+void pos_destroy(Position *pos)
 {
 	free(pos->irr_states);
 	free(pos);
 }
 
-Square file_rank_to_square(File f, Rank r)
+Square pos_file_rank_to_square(File f, Rank r)
 {
 	return 8 * r + f;
 }
 
-File get_file(Square sq)
+File pos_get_file(Square sq)
 {
 	return sq % 8;
 }
 
-Rank get_rank(Square sq)
+Rank pos_get_rank(Square sq)
 {
 	return sq / 8;
 }
 
-Color get_piece_color(Piece piece)
+Color pos_get_piece_color(Piece piece)
 {
 	return piece & 0x1;
 }
 
-PieceType get_piece_type(Piece piece)
+PieceType pos_get_piece_type(Piece piece)
 {
 	return piece >> 1;
 }
 
-Piece create_piece(PieceType pt, Color c)
+Piece pos_make_piece(PieceType pt, Color c)
 {
 	return pt << 1 | c;
 }
 
-SquareColor get_square_color(Square sq)
+SquareColor pos_get_square_color(Square sq)
 {
 	u64 dark = U64(0xaa55aa55aa55aa55);
 	return !((dark >> sq) & 1);
