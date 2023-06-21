@@ -576,7 +576,7 @@ struct info *info, const struct parameters *params)
 		 * next moves. The safety margin is proportional to the depth
 		 * with proportionality constant equal to 1.5 centipawns so that
 		 * upper nodes are less likely to be pruned. */
-		if (move_is_quiet(move) && !in_check && abs(beta) < INF - MAX_PLY) {
+		if (move_is_quiet(move) && !in_check) {
 			if (eval + 175 * depth <= alpha) {
 				free(moves_ptr);
 				return eval;
