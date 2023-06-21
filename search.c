@@ -581,7 +581,7 @@ struct info *info, const struct parameters *params)
 		 * with proportionality constant equal to 1.5 centipawns so that
 		 * upper nodes are less likely to be pruned. */
 		if (move_is_quiet(move) && !in_check && abs(beta) < INF - MAX_PLY) {
-			if (eval + 150 * depth <= alpha) {
+			if (eval + 175 * depth <= alpha) {
 				free(moves_ptr);
 				return eval;
 			}
@@ -593,9 +593,9 @@ struct info *info, const struct parameters *params)
 		 * then skip all next moves because the full evaluation will
 		 * most likely beat beta. */
 		if (move_is_quiet(move) && !in_check && abs(beta) < INF - MAX_PLY) {
-			if (eval - 150 * depth >= beta) {
+			if (eval - 175 * depth >= beta) {
 				free(moves_ptr);
-				return eval - 150 * depth;
+				return eval - 175 * depth;
 			}
 		}
 
