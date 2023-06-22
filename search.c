@@ -900,6 +900,9 @@ static void add_time(struct timespec *ts, long long time)
  * After signaling stop the calling thread must not change the stop information
  * until the search thread terminates, otherwise the search functions might
  * stop while this function might not and it will continue searching.
+ *
+ * If the position is already checkmate, this function will just return 0
+ * without searching.
  * 
  * This function returns the best move for the last position in the position
  * list in the search_settings struct and the other positions are used to
@@ -909,6 +912,15 @@ static void add_time(struct timespec *ts, long long time)
 int run_search(void *data)
 {
 	struct search_argument *const arg = data;
+
+	if (is_in_check(arg->pos)) {
+		size_t len;
+		Move *const moves = get_pseudo_legal_moves(arg->pos, &len);
+		if (moves) {
+			if (!has_legal_moves(moves, len, arg->pos))
+				return 0;
+		}
+	}
 
 	int max_depth = arg->depth;
 	long long nodes = arg->nodes;
