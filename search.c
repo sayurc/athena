@@ -919,6 +919,8 @@ int run_search(void *data)
 		if (moves) {
 			if (!has_legal_moves(moves, len, arg->pos))
 				return 0;
+		} else {
+			return 0;
 		}
 	}
 
