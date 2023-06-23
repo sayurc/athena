@@ -893,9 +893,9 @@ static void add_time(struct timespec *ts, long long time)
 	long nsec = (long)floor((time / 1e3 - sec) * 1e9);
 	ts->tv_sec += sec;
 	ts->tv_nsec += nsec;
-	if (ts->tv_nsec >= 10000000000L) {
+	if (ts->tv_nsec >= 1000000000L) {
 		++ts->tv_sec;
-		ts->tv_nsec %= 10000000000L;
+		ts->tv_nsec %= 1000000000L;
 	}
 }
 
