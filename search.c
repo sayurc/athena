@@ -964,18 +964,24 @@ int run_search(void *data)
 {
 	const struct search_argument *const arg = data;
 
-	if (is_in_check(arg->pos)) {
-		size_t len;
-		Move *const moves = get_pseudo_legal_moves(arg->pos, &len);
-		if (moves) {
-			if (!has_legal_moves(moves, len, arg->pos)) {
-				free(moves);
-				return 0;
-			}
-		} else {
-			free(moves);
-			return 0;
+	Move best_move;
+	size_t len;
+	Move *const moves = get_pseudo_legal_moves(arg->pos, &len);
+	if (!moves) {
+		free(moves);
+		return 0;
+	}
+
+	bool has_legal = false;
+	for (size_t i = 0; i < len; ++i) {
+		if (move_is_legal(arg->pos, moves[i])) {
+			has_legal = true;
+			best_move = moves[i];
 		}
+	}
+	if (!has_legal && is_in_check(arg->pos)) {
+		free(moves);
+		return 0;
 	}
 
 	if (arg->perft) {
@@ -998,7 +1004,6 @@ int run_search(void *data)
 			max_depth = MAX_DEPTH;
 	}
 
-	Move best_move = 0;
 	for (int depth = 1; depth <= max_depth && nodes > 0; ++depth) {
 		params.depth = depth;
 		params.nodes = nodes;
