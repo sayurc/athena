@@ -442,6 +442,7 @@ static void go(void)
 static void init_search_arg(struct search_argument *arg)
 {
 	arg->moves = NULL;
+	arg->num_moves = 0;
 	arg->pos = NULL;
 	arg->running = &search_running;
 	arg->running_mtx = &search_running_mtx;
