@@ -16,6 +16,8 @@
  * this program. If not, see <https://www.gnu.org/licenses/>. 
  */
 
+#include <stdlib.h>
+
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -23,8 +25,6 @@
 #include <pthread.h>
 #include <errno.h>
 #endif
-
-#include <stdlib.h>
 
 #include "threads.h"
 

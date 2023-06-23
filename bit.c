@@ -16,8 +16,8 @@
  * this program. If not, see <https://www.gnu.org/licenses/>. 
  */
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef ARCH_x64
 #include <immintrin.h>

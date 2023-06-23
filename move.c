@@ -16,10 +16,10 @@
  * this program. If not, see <https://www.gnu.org/licenses/>. 
  */
 
-#include <stdint.h>
-#include <stdlib.h>
-#include <stdio.h>
 #include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "bit.h"
 #include "pos.h"

@@ -16,14 +16,14 @@
  * this program. If not, see <https://www.gnu.org/licenses/>. 
  */
 
-#include <stdlib.h>
 #include <limits.h>
+#include <math.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <stdbool.h>
-#include <time.h>
-#include <math.h>
+#include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "bit.h"
 #include "threads.h"
@@ -483,7 +483,9 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 	}
 
 	if (*params->running) {
-		init_tt_entry(&pos_data, score_to_ttscore(best_score, data->ply), depth, type, best_move, data->pos);
+		init_tt_entry(&pos_data,
+		              score_to_ttscore(best_score, data->ply), depth,
+		              type, best_move, data->pos);
 		store_tt_entry(&pos_data);
 	}
 
@@ -560,7 +562,8 @@ struct info *info, const struct parameters *params)
 		 * pruned. */
 		if (len > 1) {
 			Move first = moves[0];
-			size_t i = get_next_move(moves, len, data->killers[depth],
+			size_t i = get_next_move(moves, len,
+			                         data->killers[depth],
 			                         data->pos);
 			Move most_promising = moves[i];
 			moves[0] = most_promising;
@@ -576,8 +579,8 @@ struct info *info, const struct parameters *params)
 		 * next moves. The safety margin is proportional to the depth
 		 * with proportionality constant equal to 1.5 centipawns so that
 		 * upper nodes are less likely to be pruned. */
-		if (move_is_quiet(move) && !in_check && abs(alpha) < INF - MAX_PLY &&
-		    abs(beta) < INF - MAX_PLY) {
+		if (move_is_quiet(move) && !in_check &&
+		    abs(alpha) < INF - MAX_PLY && abs(beta) < INF - MAX_PLY) {
 			if (eval + 175 * depth <= alpha) {
 				free(moves_ptr);
 				return eval;
@@ -589,8 +592,8 @@ struct info *info, const struct parameters *params)
 		 * If the static position score minus some margin can beat beta,
 		 * then skip all next moves because the full evaluation will
 		 * most likely beat beta. */
-		if (move_is_quiet(move) && !in_check && abs(alpha) < INF - MAX_PLY &&
-		    abs(beta) < INF - MAX_PLY) {
+		if (move_is_quiet(move) && !in_check &&
+		    abs(alpha) < INF - MAX_PLY && abs(beta) < INF - MAX_PLY) {
 			if (eval - 175 * depth >= beta) {
 				free(moves_ptr);
 				return eval - 175 * depth;
@@ -639,7 +642,9 @@ struct info *info, const struct parameters *params)
 	}
 
 	if (*params->running) {
-		init_tt_entry(&pos_data, score_to_ttscore(best_score, data->ply), depth, type, best_move, data->pos);
+		init_tt_entry(&pos_data,
+		              score_to_ttscore(best_score, data->ply), depth,
+		              type, best_move, data->pos);
 		store_tt_entry(&pos_data);
 	}
 
@@ -810,15 +815,16 @@ static struct result search(const struct parameters *params)
 	return result;
 }
 
-static void perft(const struct parameters *params)
+static void perft(int depth, const Position *pos,
+                  void (*output)(const struct info *))
 {
 	struct info info;
 	struct timespec ts1, ts2;
 
-	Position *const pos = copy_pos(params->pos);
+	Position *const pos_copy = copy_pos(pos);
 
 	timespec_get(&ts1, TIME_UTC);
-	info.nodes = movegen_perft(pos, params->depth);
+	info.nodes = movegen_perft(pos_copy, depth);
 	timespec_get(&ts2, TIME_UTC);
 
 	double dt = get_elapsed_time(&ts1, &ts2);
@@ -826,9 +832,9 @@ static void perft(const struct parameters *params)
 	info.nps = round(nps);
 
 	info.flags = INFO_FLAG_NODES | INFO_FLAG_NPS;
-	params->output(&info);
+	output(&info);
 
-	destroy_pos(pos);
+	destroy_pos(pos_copy);
 }
 
 /*
@@ -893,6 +899,47 @@ static void add_time(struct timespec *ts, long long time)
 	}
 }
 
+static void init_params(struct parameters *params,
+                        const struct search_argument *arg)
+{
+	params->pos = arg->pos;
+	params->mate = arg->mate;
+	params->movestogo = arg->movestogo;
+	params->moves = arg->moves;
+	params->num_moves = arg->num_moves;
+	params->running_mtx = arg->running_mtx;
+	params->running = arg->running;
+	params->output = arg->info_sender;
+	params->depth = 1;
+
+	if (arg->infinite || arg->mate)
+		params->nodes = LLONG_MAX;
+	else
+		params->nodes = arg->nodes;
+
+	const Color color = get_side_to_move(arg->pos);
+
+	if (arg->movetime) {
+		params->limited_time = true;
+
+		const long long movetime = arg->movetime;
+
+		timespec_get(&params->stop_time, TIME_UTC);
+		add_time(&params->stop_time, movetime);
+	} else if (arg->time[color]) {
+		params->limited_time = true;
+
+		const long long total_time = arg->time[color] + arg->inc[color];
+
+		const long long search_time = compute_search_time(params->pos,
+			total_time, arg->movestogo);
+		timespec_get(&params->stop_time, TIME_UTC);
+		add_time(&params->stop_time, search_time);
+	} else {
+		params->limited_time = false;
+	}
+}
+
 /*
  * When stop is true or the maximum number of nodes is reached we return the
  * last best root move we calculated, ignoring everything that was calculated
@@ -911,71 +958,39 @@ static void add_time(struct timespec *ts, long long time)
  */
 int run_search(void *data)
 {
-	struct search_argument *const arg = data;
+	const struct search_argument *const arg = data;
 
 	if (is_in_check(arg->pos)) {
 		size_t len;
 		Move *const moves = get_pseudo_legal_moves(arg->pos, &len);
 		if (moves) {
-			if (!has_legal_moves(moves, len, arg->pos))
+			if (!has_legal_moves(moves, len, arg->pos)) {
+				free(moves);
 				return 0;
-		} else {
-			return 0;
+			}
 		}
-	}
-
-	int max_depth = arg->depth;
-	long long nodes = arg->nodes;
-
-	if (arg->infinite || arg->mate) {
-		max_depth = MAX_DEPTH;
-		nodes = LLONG_MAX;
-	} else {
-		if (arg->depth > MAX_DEPTH)
-			max_depth = MAX_DEPTH;
+		free(moves);
+		return 0;
 	}
 
 	if (arg->perft) {
-		struct parameters params;
-		params.depth = arg->perft;
-		params.pos = arg->pos;
-		params.output = arg->info_sender;
-		perft(&params);
+		perft(arg->perft, arg->pos, arg->info_sender);
 		mtx_lock(arg->running_mtx);
 		*arg->running = false;
 		mtx_unlock(arg->running_mtx);
 		return 0;
 	}
 
-	Color color = get_side_to_move(arg->pos);
-
 	struct parameters params;
-	params.pos = arg->pos;
-	params.mate = arg->mate;
-	params.movestogo = arg->movestogo;
-	params.moves = arg->moves;
-	params.num_moves = arg->num_moves;
-	params.running = arg->running;
-	params.running_mtx = arg->running_mtx;
-	params.output = arg->info_sender;
-	if (arg->movetime) {
-		params.limited_time = true;
+	init_params(&params, arg);
 
-		long long movetime = arg->movetime;
-
-		timespec_get(&params.stop_time, TIME_UTC);
-		add_time(&params.stop_time, movetime);
-	} else if (arg->time[color]) {
-		params.limited_time = true;
-
-		long long total_time = arg->time[color] + arg->inc[color];
-
-		const long long search_time = compute_search_time(params.pos,
-			total_time, arg->movestogo);
-		timespec_get(&params.stop_time, TIME_UTC);
-		add_time(&params.stop_time, search_time);
+	long long nodes = params.nodes;
+	int max_depth = arg->depth;
+	if (arg->infinite || arg->mate) {
+		max_depth = MAX_DEPTH;
 	} else {
-		params.limited_time = false;
+		if (arg->depth > MAX_DEPTH)
+			max_depth = MAX_DEPTH;
 	}
 
 	Move best_move = 0;

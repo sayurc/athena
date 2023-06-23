@@ -16,11 +16,11 @@
  * this program. If not, see <https://www.gnu.org/licenses/>. 
  */
 
-#include <stdlib.h>
-#include <stdio.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #ifdef ARCH_x64
