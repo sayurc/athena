@@ -503,14 +503,18 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 static int negamax(int depth, int alpha, int beta, struct search_data *data,
 struct info *info, const struct parameters *params)
 {
-	struct timespec now;
-	timespec_get(&now, TIME_UTC);
 	mtx_lock(params->running_mtx);
-	if (params->limited_time) {
-		if (now.tv_sec > params->stop_time.tv_sec ||
-		    (now.tv_sec == params->stop_time.tv_sec &&
-		     now.tv_nsec >= params->stop_time.tv_nsec))
-			*params->running = false;
+	/* Only check time each 8192 nodes to avoid making system calls and
+	 * slowing down the search. */
+	if (data->nodes % 8192 == 0) {
+		struct timespec now;
+		timespec_get(&now, TIME_UTC);
+		if (params->limited_time) {
+			if (now.tv_sec > params->stop_time.tv_sec ||
+			    (now.tv_sec == params->stop_time.tv_sec &&
+			     now.tv_nsec >= params->stop_time.tv_nsec))
+				*params->running = false;
+		}
 	}
 	if (data->nodes >= params->nodes || data->ply > MAX_PLY)
 		*params->running = false;
@@ -968,9 +972,10 @@ int run_search(void *data)
 				free(moves);
 				return 0;
 			}
+		} else {
+			free(moves);
+			return 0;
 		}
-		free(moves);
-		return 0;
 	}
 
 	if (arg->perft) {
