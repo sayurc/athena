@@ -53,6 +53,8 @@ typedef u16 Move;
 bool move_is_legal(Position *pos, Move move);
 void undo_move(Position *pos, Move move);
 void do_move(Position *pos, Move move);
+void undo_null_move(Position *pos);
+void do_null_move(Position *pos);
 Move create_move(Square from, Square to, MoveType type);
 bool move_is_quiet(Move move);
 bool move_is_capture(Move move);

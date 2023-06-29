@@ -80,6 +80,26 @@ if (choice_##do_or_undo == choice_undo)\
 	backtrack_irreversible_state(pos);\
 flip_side_to_move(pos);
 
+void do_null_move(Position *pos)
+{
+	const Color c = get_side_to_move(pos);
+
+	start_new_irreversible_state(pos);
+	flip_side_to_move(pos);
+
+	unset_enpassant(pos);
+	increment_halfmove_clock(pos);
+
+	if (c == COLOR_BLACK)
+		increment_fullmove_counter(pos);
+}
+
+void undo_null_move(Position *pos)
+{
+	flip_side_to_move(pos);
+	backtrack_irreversible_state(pos);
+}
+
 static void do_promotion(Position *pos, Square from, Square to,
 			 Piece promoted_to, int is_capture)
 {

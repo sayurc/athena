@@ -40,6 +40,7 @@
 #define POS_CNT_TABLE_LEN 8191
 #define MAX_KILLER_MOVES 2
 #define AVERAGE_GAME_LENGTH 40
+#define NULL_MOVE_REDUCTION 4
 
 struct search_data {
 	int ply;
@@ -364,6 +365,22 @@ static int ttscore_to_score(int score, int ply)
 }
 
 /*
+ * This function tries to guess if a zugzwang position is likely for the side
+ * to move by using the fact that zigzwang positions usually happen when the
+ * side to move has only the king to protect the pawns.
+ */
+static bool is_zugzwang_likely(const Position *pos)
+{
+	const Color color = get_side_to_move(pos);
+	const u64 color_bb = get_color_bitboard(pos, color);
+	const Piece pawn = create_piece(PIECE_TYPE_PAWN, color);
+	const u64 pawn_bb = get_piece_bitboard(pos, pawn);
+	const Piece king = create_piece(PIECE_TYPE_KING, color);
+	const u64 king_bb = get_piece_bitboard(pos, king);
+	return (color_bb & (pawn_bb | king_bb)) == color_bb;
+}
+
+/*
  * The quiescence search is performed at the leaf nodes of the main search. It
  * searches for the best quiet position after a sequence of captures, so only
  * capturing moves are made. This way we can avoid the horizon effect where the
@@ -551,6 +568,20 @@ struct info *info, const struct parameters *params)
 	NodeType type = NODE_TYPE_ALPHA_UNCHANGED;
 
 	bool in_check = is_in_check(data->pos);
+
+	/* Null move pruning */
+	if (!in_check && !is_zugzwang_likely(data->pos) &&
+	    depth > NULL_MOVE_REDUCTION) {
+		const int new_depth = depth - NULL_MOVE_REDUCTION;
+
+		do_null_move(data->pos);
+		const int score = -negamax(new_depth, -beta, -alpha, data, info,
+		                           params);
+		undo_null_move(data->pos);
+
+		if (score >= beta)
+			return beta;
+	}
 
 	int best_score = -INF;
 	Move best_move = 0;
