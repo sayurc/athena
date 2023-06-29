@@ -427,12 +427,30 @@ static int get_smallest_pawn_distance(const Position *pos, Color color)
 	return dist - 1;
 }
 
+/*
+ * Returns true if the side color has a bishop pair (one or more bishops on
+ * light and dark squares) and false otherwise.
+ */
+bool has_bishop_pair(const Position *pos, Color color)
+{
+	const u64 light_bb = 0x5555555555555555;
+	const u64 dark_bb = 0xAAAAAAAAAAAAAAAA;
+
+	const Piece bishop = create_piece(PIECE_TYPE_BISHOP, color);
+	const u64 piece_bb = get_piece_bitboard(pos, bishop);
+	if (piece_bb & light_bb && piece_bb & dark_bb)
+		return true;
+	return false;
+}
+
 int evaluate(const Position *pos)
 {
 	const Color color = get_side_to_move(pos);
 	const int phase = get_phase(pos);
 
 	struct score score = {0, 0};
+
+	/* Piece-square tables */
 	for (Square sq = A1; sq <= H8; ++sq) {
 		const Piece piece = get_piece_at(pos, sq);
 		if (piece == PIECE_NONE)
@@ -446,6 +464,15 @@ int evaluate(const Position *pos)
 			score.mg -= sq_tables[!color][pt][sq].mg;
 			score.eg -= sq_tables[!color][pt][sq].eg;
 		}
+	}
+
+	if (has_bishop_pair(pos, color)) {
+		score.mg += point_value[PIECE_TYPE_PAWN] / 2;
+		score.eg += point_value[PIECE_TYPE_PAWN] / 2;
+	}
+	if (has_bishop_pair(pos, !color)) {
+		score.mg -= point_value[PIECE_TYPE_PAWN] / 2;
+		score.eg -= point_value[PIECE_TYPE_PAWN] / 2;
 	}
 
 	const int material = compute_material(pos);
