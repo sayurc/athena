@@ -41,6 +41,7 @@
 #define MAX_KILLER_MOVES 2
 #define AVERAGE_GAME_LENGTH 40
 #define NULL_MOVE_REDUCTION 4
+#define LMR_THRESHOLD 5
 
 struct search_data {
 	int ply;
@@ -432,29 +433,28 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 
 	bool has_legal = false;
 	size_t len = 0;
-	Move *const moves_ptr = get_pseudo_legal_moves(data->pos, &len);
-	for (Move *moves = moves_ptr; len; --len, ++moves) {
-		if (len > 1) {
-			Move first = moves[0];
-			bool ended = false;
-			size_t i = get_next_qmove(moves, len, data, &ended);
-			/* Because we skip quiet moves, when no legal moves are
-			 * found we have to check if the moves skipped are legal
-			 * otherwise the node will be considered a checkmate or
-			 * stalemate even if it isn't. */
-			if (ended && !has_legal) {
-				has_legal = has_legal_moves(moves, len,
-				                            data->pos);
-				break;
-			} else if (ended) {
-				break;
-			}
-			Move most_promising = moves[i];
-			moves[0] = most_promising;
-			moves[i] = first;
+	Move *const moves = get_pseudo_legal_moves(data->pos, &len);
+	for (size_t i = 0; i < len; ++i) {
+		bool ended = false;
+		const size_t j = i + get_next_qmove(moves + i, len - i, data,
+		                                    &ended);
+		/* Because we skip quiet moves, when no legal moves are
+		 * found we have to check if the moves skipped are legal
+		 * otherwise the node will be considered a checkmate or
+		 * stalemate even if it isn't. */
+		if (ended && !has_legal) {
+			has_legal = has_legal_moves(moves + i, len - i,
+			                            data->pos);
+			break;
+		} else if (ended) {
+			break;
 		}
+		const Move most_promising = moves[j];
+		const Move tmp = moves[i];
+		moves[i] = most_promising;
+		moves[j] = tmp;
+		const Move move = most_promising;
 
-		Move move = *moves;
 		if (move_is_legal(data->pos, move))
 			has_legal = true;
 		if (!move_is_legal(data->pos, move) || !move_is_capture(move))
@@ -485,9 +485,9 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
 		}
 	}
 	if (!best_move && has_legal)
-		best_move = moves_ptr[0];
+		best_move = moves[0];
 
-	free(moves_ptr);
+	free(moves);
 
 	if (!has_legal) {
 		if (is_in_check(data->pos)) {
@@ -587,24 +587,23 @@ struct info *info, const struct parameters *params)
 	Move best_move = 0;
 	bool has_legal = 0;
 	size_t len = 0;
-	Move *const moves_ptr = get_pseudo_legal_moves(data->pos, &len);
+	Move *const moves = get_pseudo_legal_moves(data->pos, &len);
 
 	int eval = evaluate(data->pos);
 
-	for (Move *moves = moves_ptr; len; --len, ++moves) {
+	for (size_t i = 0; i < len; ++i) {
 		/* Lazily sort moves instead of doing it all at once, this way
 		 * we avoid wasting time sorting moves of branches that are
 		 * pruned. */
-		if (len > 1) {
-			Move first = moves[0];
-			size_t i = get_next_move(moves, len,
-			                         data->killers[depth],
-			                         data->pos);
-			Move most_promising = moves[i];
-			moves[0] = most_promising;
-			moves[i] = first;
-		}
-		Move move = *moves;
+		const size_t j = i + get_next_move(moves + i, len - i,
+		                                   data->killers[depth],
+		                                   data->pos);
+		const Move most_promising = moves[j];
+		const Move tmp = moves[i];
+		moves[i] = most_promising;
+		moves[j] = tmp;
+		const Move move = most_promising;
+
 		if (!move_is_legal(data->pos, move))
 			continue;
 		has_legal = true;
@@ -617,7 +616,7 @@ struct info *info, const struct parameters *params)
 		if (move_is_quiet(move) && !in_check &&
 		    abs(alpha) < INF - MAX_PLY && abs(beta) < INF - MAX_PLY) {
 			if (eval + 175 * depth <= alpha) {
-				free(moves_ptr);
+				free(moves);
 				return eval;
 			}
 		}
@@ -630,7 +629,7 @@ struct info *info, const struct parameters *params)
 		if (move_is_quiet(move) && !in_check &&
 		    abs(alpha) < INF - MAX_PLY && abs(beta) < INF - MAX_PLY) {
 			if (eval - 175 * depth >= beta) {
-				free(moves_ptr);
+				free(moves);
 				return eval - 175 * depth;
 			}
 		}
@@ -662,9 +661,9 @@ struct info *info, const struct parameters *params)
 		}
 	}
 	if (!best_move && has_legal)
-		best_move = moves_ptr[0];
+		best_move = moves[0];
 
-	free(moves_ptr);
+	free(moves);
 
 	if (!has_legal) {
 		if (is_in_check(data->pos)) {
