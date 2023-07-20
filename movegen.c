@@ -343,7 +343,7 @@ static void init_magics_for_piece_type(PieceType piece_type)
 			ref[size] = attack_generator(sq, bb);
 
 #ifdef USE_BMI2
-				m->ptr[pext(bb, m->mask)] = ref[size];
+			m->ptr[pext(bb, m->mask)] = ref[size];
 #endif
 
 			bb = (bb - m->mask) & m->mask;
@@ -351,7 +351,7 @@ static void init_magics_for_piece_type(PieceType piece_type)
 		} while (bb);
 
 #ifdef USE_BMI2
-			continue;
+		continue;
 #endif
 
 		memset(attempts, 0, sizeof(attempts));
