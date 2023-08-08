@@ -986,10 +986,10 @@ static void init_params(struct parameters *params,
  * If the position is already checkmate, this function will just return 0
  * without searching.
  * 
- * This function returns the best move for the last position in the position
- * list in the search_settings struct and the other positions are used to
- * enforce the threefold repetition rule so they should be in the order they
- * happened in the game.
+ * This function prints the best move for the last position in the position list
+ * in the search_settings struct and the other positions are used to enforce the
+ * threefold repetition rule so they should be in the order they happened in the
+ * game.
  */
 int run_search(void *data)
 {
