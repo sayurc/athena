@@ -29,7 +29,7 @@
 #include "threads.h"
 
 /*
- * This is a incomplete implementation of C11 threads on top of pthreads and
+ * This is an incomplete implementation of C11 threads on top of pthreads and
  * Win32 threads. I only implemented enough for the use case of this program.
  */
 
