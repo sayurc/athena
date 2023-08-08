@@ -48,7 +48,8 @@ struct search_data {
 	long long nodes;
 	Position *pos;
 	Move killers[MAX_DEPTH + 1][MAX_KILLER_MOVES];
-	Move move_made[MAX_PLY + 1];
+	/* move_made needs one extra index because ply starts at 1. */
+	Move move_made[MAX_PLY + 2];
 	i8 pos_cnt[POS_CNT_TABLE_LEN];
 };
 
@@ -114,7 +115,7 @@ void init_pos_cnt_table(struct search_data *data,
 /*
  * Returns the move that was played at a ply. Negative plies index the moves
  * that were played before the search, if no moves have been played at the ply
- * then it will return 0.
+ * then it will return 0. The ply should never be 0.
  */
 static Move get_ply_move(int ply, struct search_data *data,
                          const struct parameters *params)
