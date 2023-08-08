@@ -285,7 +285,7 @@ static Move get_next_move(const Move *restrict moves, size_t len,
  * capturing moves then *ended is set to true.
  */
 static size_t get_next_qmove(const Move *moves, size_t len,
-struct search_data *data, bool *ended)
+                             struct search_data *data, bool *ended)
 {
 	int best_score = -INF;
 	size_t best_idx = 0;
@@ -519,7 +519,7 @@ static int qsearch(int depth, int alpha, int beta, struct search_data *data,
  * (full moves, not plies) for checkmate.
  */
 static int negamax(int depth, int alpha, int beta, struct search_data *data,
-struct info *info, const struct parameters *params)
+                   struct info *info, const struct parameters *params)
 {
 	mtx_lock(params->running_mtx);
 	/* Only check time each 8192 nodes to avoid making system calls and
