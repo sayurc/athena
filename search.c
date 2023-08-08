@@ -123,7 +123,7 @@ static Move get_ply_move(int ply, struct search_data *data,
 	if (ply < 0) {
 		int idx = ply + params->num_moves;
 		if (idx >= 0 && idx < params->num_moves)
-			return params->moves[ply + params->num_moves];
+			return params->moves[idx];
 	} else {
 		return data->move_made[ply];
 	}
